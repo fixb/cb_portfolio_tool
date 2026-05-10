@@ -1,0 +1,2418 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CB Portfolio Builder &amp; P&amp;L Attribution</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<style>
+:root {
+  --bg: #0e1116;
+  --panel: #161b22;
+  --panel-2: #1c232c;
+  --border: #2a3340;
+  --border-soft: #1e252f;
+  --text: #e6edf3;
+  --text-dim: #8b949e;
+  --text-faint: #6e7681;
+  --accent: #4cc9f0;
+  --accent-2: #f9a826;
+  --pos: #3fb950;
+  --neg: #f85149;
+  --warn: #d29922;
+  --shadow: 0 1px 2px rgba(0,0,0,0.4);
+  --mono: 'IBM Plex Mono', 'SF Mono', Menlo, monospace;
+  --sans: 'IBM Plex Sans', system-ui, -apple-system, sans-serif;
+}
+* { box-sizing: border-box; }
+html, body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--sans);
+  font-size: 13px;
+  line-height: 1.45;
+  min-height: 100vh;
+}
+
+/* ===== Header ===== */
+.app-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 18px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+  position: sticky; top: 0; z-index: 100;
+}
+.app-header h1 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: var(--text);
+}
+.app-header h1 span.accent { color: var(--accent); }
+.tabs {
+  display: flex;
+  gap: 0;
+}
+.tab-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-dim);
+  padding: 8px 16px;
+  font-family: var(--sans);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+.tab-btn:hover { color: var(--text); }
+.tab-btn.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+.header-status {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+/* ===== Layout ===== */
+.app-main { padding: 14px 18px; }
+.tab-pane { display: none; }
+.tab-pane.active { display: block; }
+
+.section {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  margin-bottom: 14px;
+}
+.section-head {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  user-select: none;
+}
+.section-head h2 {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--text);
+}
+.section-head h2 .count {
+  color: var(--text-faint);
+  font-weight: 400;
+  margin-left: 8px;
+  font-family: var(--mono);
+}
+.section-head .chev { color: var(--text-faint); font-size: 11px; transition: transform 0.15s; }
+.section.collapsed .chev { transform: rotate(-90deg); }
+.section.collapsed .section-body { display: none; }
+.section-body { padding: 14px; }
+
+/* ===== File loader ===== */
+.dropzone {
+  border: 2px dashed var(--border);
+  border-radius: 4px;
+  padding: 20px;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.15s;
+  background: var(--panel-2);
+}
+.dropzone:hover, .dropzone.dragover {
+  border-color: var(--accent);
+  background: rgba(76, 201, 240, 0.05);
+}
+.dropzone p { margin: 4px 0; color: var(--text-dim); font-size: 12px; }
+.dropzone p.title { color: var(--text); font-weight: 500; font-size: 13px; }
+.dropzone input[type=file] { display: none; }
+.dropzone-mini {
+  border: 1px dashed var(--border);
+  border-radius: 4px;
+  padding: 10px;
+  text-align: center;
+  cursor: pointer;
+  background: var(--panel-2);
+  font-size: 11px;
+  color: var(--text-dim);
+}
+.dropzone-mini.loaded {
+  border-color: var(--pos);
+  border-style: solid;
+  color: var(--text);
+}
+
+/* ===== Summary cards ===== */
+.kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 10px;
+  margin-bottom: 14px;
+}
+.kpi {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 10px 12px;
+}
+.kpi .label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--text-faint);
+  margin-bottom: 4px;
+}
+.kpi .value {
+  font-family: var(--mono);
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text);
+}
+.kpi .sub {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text-faint);
+  margin-top: 2px;
+}
+.kpi.pos .value { color: var(--pos); }
+.kpi.neg .value { color: var(--neg); }
+.kpi.accent .value { color: var(--accent); }
+
+/* ===== Filter grid ===== */
+.filters-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 14px;
+}
+.filter-block {
+  background: var(--panel-2);
+  border: 1px solid var(--border-soft);
+  border-radius: 4px;
+  padding: 10px;
+}
+.filter-block .filter-title {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-dim);
+  margin-bottom: 6px;
+  font-weight: 600;
+}
+.checkbox-list {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  max-height: 160px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+.checkbox-list label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text);
+  cursor: pointer;
+}
+.checkbox-list label .ct {
+  margin-left: auto;
+  color: var(--text-faint);
+  font-family: var(--mono);
+  font-size: 10px;
+}
+.checkbox-list input[type=checkbox] { accent-color: var(--accent); }
+
+.range-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  margin-top: 4px;
+}
+.range-row label {
+  font-size: 10px;
+  color: var(--text-faint);
+  text-transform: uppercase;
+  flex-shrink: 0;
+}
+.range-row input {
+  flex: 1;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 4px 6px;
+  border-radius: 3px;
+  font-family: var(--mono);
+  font-size: 11px;
+  width: 100%;
+}
+.range-row input:focus { outline: 1px solid var(--accent); border-color: var(--accent); }
+.range-meta {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text-faint);
+  margin-top: 4px;
+  display: flex;
+  justify-content: space-between;
+}
+
+/* ===== Buttons ===== */
+.btn {
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 6px 12px;
+  border-radius: 3px;
+  font-family: var(--sans);
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  transition: all 0.1s;
+}
+.btn:hover { background: var(--border); }
+.btn.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #0e1116;
+}
+.btn.primary:hover { background: #67d4f7; border-color: #67d4f7; }
+.btn.secondary {
+  background: transparent;
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.btn.danger {
+  background: transparent;
+  border-color: var(--neg);
+  color: var(--neg);
+}
+.btn-group { display: flex; gap: 8px; flex-wrap: wrap; }
+
+/* ===== Tables ===== */
+.table-wrap {
+  overflow-x: auto;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  max-height: 520px;
+  overflow-y: auto;
+}
+table.data {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--mono);
+  font-size: 11px;
+}
+table.data thead th {
+  background: var(--panel-2);
+  color: var(--text-dim);
+  font-weight: 500;
+  padding: 6px 10px;
+  text-align: right;
+  border-bottom: 1px solid var(--border);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  font-size: 10px;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+table.data thead th:first-child,
+table.data thead th.text-col { text-align: left; }
+table.data thead th.sorted-asc::after { content: " ▲"; color: var(--accent); }
+table.data thead th.sorted-desc::after { content: " ▼"; color: var(--accent); }
+table.data thead th:hover { color: var(--text); }
+table.data tbody td {
+  padding: 5px 10px;
+  text-align: right;
+  border-bottom: 1px solid var(--border-soft);
+  white-space: nowrap;
+}
+table.data tbody td.text-col { text-align: left; }
+table.data tbody tr:hover { background: var(--panel-2); }
+table.data tbody td.pos { color: var(--pos); }
+table.data tbody td.neg { color: var(--neg); }
+.tag {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 2px;
+  font-size: 10px;
+  font-family: var(--sans);
+  background: var(--border);
+  color: var(--text-dim);
+}
+.tag.region-eu { background: rgba(76,201,240,0.15); color: #4cc9f0; }
+.tag.region-us { background: rgba(249,168,38,0.15); color: #f9a826; }
+.tag.region-jp { background: rgba(192,108,212,0.15); color: #c06cd4; }
+.tag.region-ax { background: rgba(63,185,80,0.15); color: #3fb950; }
+.tag.region-ot { background: rgba(140,140,140,0.15); color: #b0b0b0; }
+
+/* ===== Charts ===== */
+.charts-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+  gap: 14px;
+  margin-bottom: 14px;
+}
+.chart-card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 12px;
+}
+.chart-card h3 {
+  margin: 0 0 8px 0;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-dim);
+  font-weight: 600;
+}
+.chart-card .canvas-wrap { position: relative; height: 230px; }
+
+/* ===== Form rows ===== */
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 12px;
+}
+.form-row label {
+  display: block;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-faint);
+  margin-bottom: 4px;
+  font-weight: 600;
+}
+.form-row input, .form-row select {
+  width: 100%;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 6px 8px;
+  border-radius: 3px;
+  font-family: var(--mono);
+  font-size: 12px;
+}
+.form-row input:focus, .form-row select:focus {
+  outline: 1px solid var(--accent);
+  border-color: var(--accent);
+}
+.form-row .helper { font-size: 10px; color: var(--text-faint); margin-top: 3px; }
+
+/* ===== Help ===== */
+.help-pane h3 { font-size: 13px; color: var(--accent); margin-top: 18px; margin-bottom: 6px; font-weight: 600; }
+.help-pane h3:first-child { margin-top: 0; }
+.help-pane p, .help-pane li { font-size: 12px; color: var(--text-dim); line-height: 1.55; }
+.help-pane code { background: var(--panel-2); padding: 1px 5px; border-radius: 2px; font-family: var(--mono); color: var(--accent-2); font-size: 11px; }
+.help-pane ul { padding-left: 20px; }
+
+/* ===== Toolbar ===== */
+.toolbar {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+  padding: 10px 14px;
+  background: var(--panel-2);
+  border: 1px solid var(--border-soft);
+  border-radius: 4px;
+  margin-bottom: 14px;
+}
+.toolbar .ct { font-family: var(--mono); color: var(--text-dim); font-size: 11px; margin-right: auto; }
+.toolbar .sep { width: 1px; height: 18px; background: var(--border); }
+
+/* ===== Utility ===== */
+.muted { color: var(--text-faint); }
+.warn { color: var(--warn); }
+.no-data { padding: 30px; text-align: center; color: var(--text-faint); font-size: 12px; }
+.scrollable-220 { max-height: 220px; overflow-y: auto; }
+
+/* Scrollbars */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: var(--bg); }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: #3a4554; }
+
+/* Toggle switches */
+.toggle {
+  display: inline-flex;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 2px;
+  gap: 0;
+}
+.toggle button {
+  background: transparent;
+  border: none;
+  color: var(--text-dim);
+  padding: 4px 10px;
+  font-size: 11px;
+  cursor: pointer;
+  border-radius: 2px;
+  font-family: var(--sans);
+}
+.toggle button.active {
+  background: var(--accent);
+  color: #0e1116;
+}
+
+/* Two-col responsive helper */
+.split-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+@media (max-width: 900px) { .split-2 { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+
+<header class="app-header">
+  <h1><span class="accent">◆</span> CB Portfolio Builder &amp; <span class="accent">Δ</span> P&amp;L Attribution</h1>
+  <nav class="tabs">
+    <button class="tab-btn active" data-tab="universe">Universe</button>
+    <button class="tab-btn" data-tab="portfolio">Portfolio Builder</button>
+    <button class="tab-btn" data-tab="attribution">P&amp;L Attribution</button>
+    <button class="tab-btn" data-tab="help">Help</button>
+  </nav>
+  <div class="header-status" id="header-status">no file loaded</div>
+</header>
+
+<main class="app-main">
+
+<!-- ============== TAB 1: UNIVERSE ============== -->
+<div class="tab-pane active" id="tab-universe">
+
+  <div class="section">
+    <div class="section-head"><h2>Load CB Universe File</h2></div>
+    <div class="section-body">
+      <div class="dropzone" id="dropzone-main">
+        <p class="title">Drop FTSE CB Index file here, or click to browse</p>
+        <p>.xls or .xlsx — header row auto-detected (looks for "MACE ID" / "ISIN")</p>
+        <p class="muted" id="loaded-file-info"></p>
+        <input type="file" id="file-input-main" accept=".xls,.xlsx,.xlsm">
+      </div>
+    </div>
+  </div>
+
+  <div id="universe-content" style="display:none">
+
+    <div class="kpi-grid" id="kpi-universe"></div>
+
+    <div class="section">
+      <div class="section-head" onclick="toggleSection(this)"><h2>Filters <span class="count" id="filter-count"></span></h2><span class="chev">▼</span></div>
+      <div class="section-body">
+        <div class="toolbar">
+          <span class="ct" id="filter-status">—</span>
+          <button class="btn" id="btn-reset-filters">Reset filters</button>
+          <button class="btn secondary" id="btn-export-filtered">Export filtered (CSV)</button>
+        </div>
+        <div class="filters-grid" id="filters-grid"></div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-head" onclick="toggleSection(this)"><h2>Distributions</h2><span class="chev">▼</span></div>
+      <div class="section-body">
+        <div class="charts-grid">
+          <div class="chart-card"><h3>By Region</h3><div class="canvas-wrap"><canvas id="ch-region"></canvas></div></div>
+          <div class="chart-card"><h3>By Sector</h3><div class="canvas-wrap"><canvas id="ch-sector"></canvas></div></div>
+          <div class="chart-card"><h3>Delta histogram</h3><div class="canvas-wrap"><canvas id="ch-delta"></canvas></div></div>
+          <div class="chart-card"><h3>Implied Vol histogram</h3><div class="canvas-wrap"><canvas id="ch-iv"></canvas></div></div>
+          <div class="chart-card"><h3>Credit Spread histogram (bp)</h3><div class="canvas-wrap"><canvas id="ch-cs"></canvas></div></div>
+          <div class="chart-card"><h3>Edge to Theo (pts)</h3><div class="canvas-wrap"><canvas id="ch-edge"></canvas></div></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-head"><h2>Filtered Universe <span class="count" id="filtered-count"></span></h2></div>
+      <div class="section-body">
+        <div class="table-wrap">
+          <table class="data" id="tbl-universe">
+            <thead></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ============== TAB 2: PORTFOLIO BUILDER ============== -->
+<div class="tab-pane" id="tab-portfolio">
+
+  <div class="section">
+    <div class="section-head"><h2>Construction Setup</h2></div>
+    <div class="section-body">
+      <div class="form-grid">
+        <div class="form-row">
+          <label>Source universe</label>
+          <select id="pb-source">
+            <option value="filtered">Filtered (from Universe tab)</option>
+            <option value="all">Full universe</option>
+          </select>
+          <div class="helper" id="pb-source-info">—</div>
+        </div>
+        <div class="form-row">
+          <label>Weighting scheme</label>
+          <select id="pb-weighting">
+            <option value="equal">Equal weight</option>
+            <option value="mcap">Market cap (equity)</option>
+            <option value="index">Index weight (rescaled)</option>
+            <option value="delta">Delta-weighted</option>
+            <option value="gamma">Gamma-weighted</option>
+            <option value="edge">Edge-weighted (cheapness)</option>
+          </select>
+          <div class="helper">Initial weights, before tilt &amp; constraints</div>
+        </div>
+        <div class="form-row">
+          <label>Target portfolio notional (USDm)</label>
+          <input type="number" id="pb-notional" value="100" step="10">
+          <div class="helper">Used for $ position sizes</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-head" onclick="toggleSection(this)"><h2>Diversification Constraints</h2><span class="chev">▼</span></div>
+    <div class="section-body">
+      <div class="form-grid">
+        <div class="form-row">
+          <label>Max single position %</label>
+          <input type="number" id="pb-max-pos" value="3" step="0.5" min="0.1">
+        </div>
+        <div class="form-row">
+          <label>Max issuer concentration %</label>
+          <input type="number" id="pb-max-issuer" value="5" step="0.5" min="0.1">
+          <div class="helper">Sum across same issuer name</div>
+        </div>
+        <div class="form-row">
+          <label>Max sector %</label>
+          <input type="number" id="pb-max-sector" value="25" step="1" min="1">
+        </div>
+        <div class="form-row">
+          <label>Max region %</label>
+          <input type="number" id="pb-max-region" value="60" step="1" min="1">
+        </div>
+        <div class="form-row">
+          <label>Max nb of positions (0 = no cap)</label>
+          <input type="number" id="pb-max-n" value="0" step="1" min="0">
+        </div>
+        <div class="form-row">
+          <label>Min position weight %</label>
+          <input type="number" id="pb-min-pos" value="0.1" step="0.05" min="0">
+          <div class="helper">Bonds below this trimmed</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-head" onclick="toggleSection(this)"><h2>Optional Optimizer / Tilt</h2><span class="chev">▼</span></div>
+    <div class="section-body">
+      <div class="form-grid">
+        <div class="form-row">
+          <label>Tilt mode</label>
+          <select id="pb-tilt-mode">
+            <option value="none">None</option>
+            <option value="target">Target metric value</option>
+            <option value="maximize">Maximize metric</option>
+            <option value="minimize">Minimize metric</option>
+          </select>
+        </div>
+        <div class="form-row">
+          <label>Metric</label>
+          <select id="pb-tilt-metric">
+            <option value="delta">Delta</option>
+            <option value="iv">Implied Vol</option>
+            <option value="gamma">Gamma</option>
+            <option value="vega">Vega</option>
+            <option value="edge">Edge to Theo</option>
+            <option value="duration">Duration to Mat/Put</option>
+            <option value="creditSpread">Credit Spread</option>
+            <option value="premium">Conv Premium</option>
+            <option value="ytmput">YTM/YTP</option>
+          </select>
+        </div>
+        <div class="form-row">
+          <label>Target value (if "target" mode)</label>
+          <input type="number" id="pb-tilt-target" value="50" step="1">
+          <div class="helper">e.g. delta 50, IV 35, edge 1.0</div>
+        </div>
+        <div class="form-row">
+          <label>Tilt intensity λ</label>
+          <input type="number" id="pb-tilt-lambda" value="0.10" step="0.05" min="0" max="2">
+          <div class="helper">Higher = stronger tilt. 0 = none</div>
+        </div>
+      </div>
+      <div class="helper" style="margin-top:8px">
+        Tilt works by exponential reweighting: w<sub>i</sub> ← w<sub>i</sub> × exp(±λ·(x<sub>i</sub>−target)) (or ±λ·x<sub>i</sub> for max/min). Then renormalized and run through diversification constraints. Heuristic, not a true QP.
+      </div>
+    </div>
+  </div>
+
+  <div class="toolbar">
+    <span class="ct" id="pb-status">Ready</span>
+    <button class="btn primary" id="btn-build-portfolio">Build Portfolio</button>
+    <button class="btn" id="btn-export-portfolio">Export Portfolio (CSV)</button>
+    <button class="btn" id="btn-save-portfolio">Save Portfolio (JSON)</button>
+    <button class="btn" id="btn-load-portfolio">Load Portfolio (JSON)</button>
+    <input type="file" id="pb-load-input" accept=".json" style="display:none">
+  </div>
+
+  <div id="portfolio-content" style="display:none">
+
+    <div class="kpi-grid" id="kpi-portfolio"></div>
+
+    <div class="charts-grid">
+      <div class="chart-card"><h3>Weights by Region</h3><div class="canvas-wrap"><canvas id="ch-pb-region"></canvas></div></div>
+      <div class="chart-card"><h3>Weights by Sector</h3><div class="canvas-wrap"><canvas id="ch-pb-sector"></canvas></div></div>
+      <div class="chart-card"><h3>Weights by Delta bucket</h3><div class="canvas-wrap"><canvas id="ch-pb-delta"></canvas></div></div>
+      <div class="chart-card"><h3>Weights by Currency</h3><div class="canvas-wrap"><canvas id="ch-pb-ccy"></canvas></div></div>
+    </div>
+
+    <div class="section">
+      <div class="section-head"><h2>Holdings <span class="count" id="pb-holdings-count"></span></h2></div>
+      <div class="section-body">
+        <div class="table-wrap">
+          <table class="data" id="tbl-portfolio">
+            <thead></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ============== TAB 3: P&L ATTRIBUTION ============== -->
+<div class="tab-pane" id="tab-attribution">
+
+  <div class="section">
+    <div class="section-head"><h2>Load Snapshots</h2></div>
+    <div class="section-body">
+      <div class="split-2">
+        <div>
+          <div class="filter-title" style="margin-bottom:6px;">T₀ snapshot (start)</div>
+          <div class="dropzone-mini" id="dz-t0">click or drop file</div>
+          <input type="file" id="file-t0" accept=".xls,.xlsx,.xlsm" style="display:none">
+        </div>
+        <div>
+          <div class="filter-title" style="margin-bottom:6px;">T₁ snapshot (end)</div>
+          <div class="dropzone-mini" id="dz-t1">click or drop file</div>
+          <input type="file" id="file-t1" accept=".xls,.xlsx,.xlsm" style="display:none">
+        </div>
+      </div>
+      <div class="helper" style="margin-top:10px;">
+        T₀ defaults to the universe loaded in Universe tab. Drop a different file here to override.
+      </div>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-head"><h2>Settings</h2></div>
+    <div class="section-body">
+      <div class="form-grid">
+        <div class="form-row">
+          <label>Portfolio</label>
+          <select id="att-portfolio">
+            <option value="builder">From Portfolio Builder</option>
+            <option value="equal">Equal weight (matched bonds)</option>
+            <option value="mcap">Market cap weight</option>
+            <option value="index">Index weight (T₀)</option>
+          </select>
+        </div>
+        <div class="form-row">
+          <label>P&amp;L mode</label>
+          <select id="att-mode">
+            <option value="outright">Outright (ΔP / P)</option>
+            <option value="hedged">Delta-hedged (ΔP − δ·ΔParity)</option>
+          </select>
+        </div>
+        <div class="form-row">
+          <label>Include accrued coupon</label>
+          <select id="att-coupon">
+            <option value="no">No</option>
+            <option value="yes">Yes (linear, by date diff)</option>
+          </select>
+        </div>
+        <div class="form-row">
+          <label>Match key</label>
+          <select id="att-key">
+            <option value="isin">ISIN (fallback MACE ID)</option>
+            <option value="mace">MACE ID only</option>
+          </select>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="toolbar">
+    <span class="ct" id="att-status">Load both snapshots</span>
+    <button class="btn primary" id="btn-run-att">Run Attribution</button>
+    <button class="btn" id="btn-export-att">Export Attribution (CSV)</button>
+  </div>
+
+  <div id="attribution-content" style="display:none">
+
+    <div class="kpi-grid" id="kpi-attribution"></div>
+
+    <div class="charts-grid">
+      <div class="chart-card"><h3>Contribution by Region</h3><div class="canvas-wrap"><canvas id="ch-att-region"></canvas></div></div>
+      <div class="chart-card"><h3>Contribution by Sector</h3><div class="canvas-wrap"><canvas id="ch-att-sector"></canvas></div></div>
+      <div class="chart-card"><h3>Contribution by Delta bucket (T₀)</h3><div class="canvas-wrap"><canvas id="ch-att-delta"></canvas></div></div>
+      <div class="chart-card"><h3>Contribution by Currency</h3><div class="canvas-wrap"><canvas id="ch-att-ccy"></canvas></div></div>
+    </div>
+
+    <div class="split-2">
+      <div class="section">
+        <div class="section-head"><h2>Top Contributors</h2></div>
+        <div class="section-body">
+          <div class="scrollable-220">
+            <table class="data" id="tbl-top-contrib"><thead></thead><tbody></tbody></table>
+          </div>
+        </div>
+      </div>
+      <div class="section">
+        <div class="section-head"><h2>Top Detractors</h2></div>
+        <div class="section-body">
+          <div class="scrollable-220">
+            <table class="data" id="tbl-top-detract"><thead></thead><tbody></tbody></table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-head"><h2>Bond-level P&amp;L <span class="count" id="att-rows-count"></span></h2></div>
+      <div class="section-body">
+        <div class="table-wrap">
+          <table class="data" id="tbl-attribution"><thead></thead><tbody></tbody></table>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ============== TAB HELP ============== -->
+<div class="tab-pane help-pane" id="tab-help">
+  <div class="section"><div class="section-body">
+
+    <h3>Workflow</h3>
+    <ol>
+      <li><b>Universe tab:</b> charge le fichier index FTSE (.xls / .xlsx). Le parseur cherche la ligne d'en-tête (mot-clé <code>MACE ID</code>) et lit toutes les lignes de données en dessous.</li>
+      <li>Filtre le périmètre (région, secteur, currency, delta, IV, edge, credit, duration, taille, mandatory/exch, etc.).</li>
+      <li><b>Portfolio Builder tab:</b> choisis un schéma de pondération initial, applique des contraintes de diversification, et optionnellement un tilt vers une métrique cible.</li>
+      <li><b>P&amp;L Attribution tab:</b> charge un second snapshot (T₁). Le matching se fait par ISIN (avec fallback MACE ID). Le portefeuille bâti dans l'onglet précédent est appliqué aux poids T₀.</li>
+    </ol>
+
+    <h3>Pondération initiale</h3>
+    <ul>
+      <li><code>Equal weight</code>: 1/N</li>
+      <li><code>Market cap</code>: w<sub>i</sub> = MC<sub>i</sub> / Σ MC</li>
+      <li><code>Index weight</code>: poids FTSE renormalisé sur l'univers filtré</li>
+      <li><code>Delta / Gamma / Edge weighted</code>: w<sub>i</sub> ∝ max(0, x<sub>i</sub>) (utile pour overweight bonds with positive metric)</li>
+    </ul>
+
+    <h3>Contraintes de diversification</h3>
+    <p>Algorithme glouton: tronque les poids dépassant les caps (position, issuer, sector, region) et redistribue proportionnellement aux bonds non saturés. Itéré jusqu'à convergence (max 50 passes).</p>
+
+    <h3>Tilt</h3>
+    <p>Reweighting exponentiel:</p>
+    <ul>
+      <li><code>target</code>: w<sub>i</sub> ← w<sub>i</sub> × exp(−λ × (x<sub>i</sub> − target)²) — ramène la distribution autour de la cible</li>
+      <li><code>maximize</code>: w<sub>i</sub> ← w<sub>i</sub> × exp(+λ × x<sub>i</sub>)</li>
+      <li><code>minimize</code>: w<sub>i</sub> ← w<sub>i</sub> × exp(−λ × x<sub>i</sub>)</li>
+    </ul>
+    <p>Puis renormalisation et application des contraintes. C'est une heuristique, pas un solveur QP — utile pour orientations directionnelles.</p>
+
+    <h3>P&amp;L: deux modes</h3>
+    <ul>
+      <li><b>Outright</b>: r<sub>i</sub> = (P<sub>1</sub> − P<sub>0</sub>) / P<sub>0</sub> (en %, prix CB seul). Optionnellement + coupon accrued sur Δt.</li>
+      <li><b>Delta-hedged</b>: r<sub>i</sub> = (ΔP<sub>CB</sub> − δ<sub>0</sub> × ΔParité) / P<sub>0</sub>. δ et parité sont en % CB notional; cette quantité capture gamma + theta + carry, à edge / IV constants.</li>
+    </ul>
+    <p>Le retour portefeuille est Σ w<sub>i,0</sub> × r<sub>i</sub>. La contribution de chaque bond/bucket est w<sub>i,0</sub> × r<sub>i</sub> (en bps de portefeuille).</p>
+
+    <h3>Limitations</h3>
+    <ul>
+      <li>Le delta-hedge est <em>statique</em> sur Δt: pas de re-hedge intraperiode. Pour Δt court ou move modéré, c'est OK; pour Δt long ou move large, gamma slippage non capturé.</li>
+      <li>Le coupon accrued est linéaire, sans actualisation.</li>
+      <li>Les bonds ajoutés/retirés entre T₀ et T₁ apparaissent dans des buckets séparés (no-match) avec contribution = 0.</li>
+      <li>Les colonnes manquantes (rating, etc.) sont gérées comme N/A.</li>
+    </ul>
+
+    <h3>Champs lus</h3>
+    <p>Le parseur reconnaît les colonnes par nom (insensible à la casse, espaces et ponctuation). Champs principaux:</p>
+    <p class="muted"><code>MACE ID</code>, <code>ISIN</code>, <code>Issue</code>, <code>Coupon</code>, <code>Maturity</code>, <code>Put date</code>, <code>Bond Currency</code>, <code>Convertible Price</code>, <code>Equity Price</code>, <code>Parity</code>, <code>Conversion Premium</code>, <code>Delta</code>, <code>Credit Spread</code>, <code>Inv Value</code>, <code>Yield to Mat/Put</code>, <code>Duration</code>, <code>Duration to Next Put/Mat.</code>, <code>S&amp;P</code>, <code>Moody</code>, <code>Market Cap (USDm)</code>, <code>Index Weight</code>, <code>Region</code>, <code>Sector</code>, <code>Country</code>, <code>Issue Date</code>, <code>Mandatory (Y/N)</code>, <code>Exchangeable (Y/N)</code>, <code>Input Vol.</code>, <code>Equity Yield</code>, <code>Stock Borrow</code>, <code>Theo. Price</code>, <code>Edge to Theo.</code>, <code>Implied Vol.</code>, <code>Gamma</code>, <code>Rho (10bp)</code>, <code>Vega</code>.</p>
+
+  </div></div>
+</div>
+
+</main>
+
+<script>
+/* =========================================================
+   STATE
+   ========================================================= */
+const state = {
+  universe: [],          // raw parsed rows, fully normalized
+  filtered: [],
+  filters: {
+    cat: { region: new Set(), sector: new Set(), currency: new Set(), country: new Set(), mandatory: new Set(), exchangeable: new Set() },
+    num: {}              // { delta: [min,max], ... }
+  },
+  numFields: {
+    delta:        { label: 'Delta',           getter: r => r.delta },
+    iv:           { label: 'Implied Vol',     getter: r => r.iv },
+    inputVol:     { label: 'Input Vol',       getter: r => r.inputVol },
+    edge:         { label: 'Edge to Theo',    getter: r => r.edge },
+    creditSpread: { label: 'Credit Spread',   getter: r => r.creditSpread },
+    convPrice:    { label: 'Conv Price',      getter: r => r.convPrice },
+    parity:       { label: 'Parity',          getter: r => r.parity },
+    premium:      { label: 'Conv Premium',    getter: r => r.premium },
+    duration:     { label: 'Duration',        getter: r => r.duration },
+    durationPut:  { label: 'Dur. to Mat/Put', getter: r => r.durationPut },
+    coupon:       { label: 'Coupon',          getter: r => r.coupon },
+    ytmput:       { label: 'YTM/YTP',         getter: r => r.ytmput },
+    mcap:         { label: 'Market Cap (USDm)',getter:r => r.mcap },
+    gamma:        { label: 'Gamma',           getter: r => r.gamma },
+    vega:         { label: 'Vega',            getter: r => r.vega },
+    indexWeight:  { label: 'Index Weight %',  getter: r => r.indexWeight },
+  },
+  catFields: ['region', 'sector', 'currency', 'country', 'mandatory', 'exchangeable'],
+  charts: {},
+  portfolio: null,       // { holdings: [{...row, weight}], notional, settings }
+  t0: null, t1: null,    // for attribution
+  attribution: null,
+  sortState: { universe: { col: null, dir: 1 }, portfolio: { col: null, dir: 1 }, attribution: { col: null, dir: 1 } },
+  lastFile: null,
+};
+
+/* =========================================================
+   PARSING
+   ========================================================= */
+const colAliases = {
+  maceId:        ['mace id', 'mace_id', 'maceid'],
+  isin:          ['isin', 'isin regulation s', 'isin 144a', 'isin registered (sec)'],
+  issue:         ['issue', 'issuer', 'name'],
+  coupon:        ['coupon'],
+  maturity:      ['maturity'],
+  putDate:       ['put date', 'next put'],
+  currency:      ['bond currency', 'currency', 'ccy'],
+  convPrice:     ['convertible price', 'cb price', 'price'],
+  equityPrice:   ['equity price', 'stock price', 'underlying price'],
+  parity:        ['parity'],
+  premium:       ['conversion premium', 'conv premium', 'premium'],
+  delta:         ['delta'],
+  creditSpread:  ['credit spread', 'cs'],
+  invValue:      ['inv value', 'investment value', 'bond floor'],
+  premToInvVal:  ['prem to inv val', 'premium to bond floor'],
+  ytmput:        ['yield to mat/put', 'ytm/p', 'yield to mat or put'],
+  ytm:           ['yield to mat', 'ytm'],
+  ytp:           ['yield to put', 'ytp'],
+  ytc:           ['yield to call', 'ytc'],
+  duration:      ['duration'],
+  durationPut:   ['duration to next put/mat.', 'duration to next put/mat', 'duration to put/mat', 'mod dur to put'],
+  sp:            ['s&p', 'sp', 's&p rating'],
+  moody:         ['moody', "moody's", 'moody rating'],
+  mcap:          ['market cap (usdm)', 'market cap usdm', 'mkt cap', 'market cap'],
+  indexWeight:   ['index weight', 'wt'],
+  region:        ['region'],
+  sector:        ['sector'],
+  country:       ['country'],
+  issueDate:     ['issue date'],
+  mandatory:     ['mandatory (y/n)', 'mandatory'],
+  exchangeable:  ['exchangeable (y/n)', 'exchangeable'],
+  inputVol:      ['input vol.', 'input vol', 'vol'],
+  equityYield:   ['equity yield', 'div yield'],
+  stockBorrow:   ['stock borrow', 'borrow'],
+  theoPrice:     ['theo. price', 'theo price', 'theoretical price'],
+  edge:          ['edge to theo.', 'edge to theo', 'edge'],
+  iv:            ['implied vol.', 'implied vol', 'iv'],
+  gamma:         ['gamma'],
+  rho:           ['rho (10bp)', 'rho'],
+  vega:          ['vega'],
+  chi:           ['chi'],
+  ric:           ['ric code', 'ric'],
+};
+
+function normHeader(h) {
+  if (h == null) return '';
+  return String(h).toLowerCase().trim().replace(/\s+/g, ' ');
+}
+
+function buildHeaderMap(headerRow) {
+  const map = {};
+  const normalized = headerRow.map(h => normHeader(h));
+  for (const [field, aliases] of Object.entries(colAliases)) {
+    for (const alias of aliases) {
+      const idx = normalized.indexOf(alias);
+      if (idx >= 0 && map[field] === undefined) {
+        map[field] = idx;
+        break;
+      }
+    }
+  }
+  return map;
+}
+
+function toNum(v) {
+  if (v == null || v === '' || v === '-' || v === 'N/A' || v === 'n/a') return null;
+  if (typeof v === 'number') return isFinite(v) ? v : null;
+  const s = String(v).replace(/,/g, '').replace(/%/g, '').trim();
+  if (s === '') return null;
+  const n = parseFloat(s);
+  return isFinite(n) ? n : null;
+}
+
+function toStr(v) {
+  if (v == null) return '';
+  return String(v).trim();
+}
+
+// Excel date serial -> Date
+function excelDate(v) {
+  if (v == null || v === '') return null;
+  if (v instanceof Date) return v;
+  if (typeof v === 'number') {
+    // SheetJS already converts dates if cellDates: true. If we get a number, try interpreting as Excel serial
+    const utc_days = v - 25569;
+    const utc_value = utc_days * 86400;
+    return new Date(utc_value * 1000);
+  }
+  if (typeof v === 'string') {
+    const d = new Date(v);
+    return isFinite(d) ? d : null;
+  }
+  return null;
+}
+
+function parseSheet(arrayBuffer, fileName) {
+  const wb = XLSX.read(arrayBuffer, { type: 'array', cellDates: true });
+  // Find the sheet most likely to contain the data ('Index' sheet first, else first sheet)
+  let sheetName = wb.SheetNames.find(n => /index/i.test(n)) || wb.SheetNames[0];
+  const ws = wb.Sheets[sheetName];
+  const aoa = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null, raw: false, dateNF: 'yyyy-mm-dd' });
+
+  // Find header row by scanning for "MACE ID" or "ISIN"
+  let headerIdx = -1;
+  for (let i = 0; i < Math.min(aoa.length, 50); i++) {
+    const row = aoa[i] || [];
+    const norm = row.map(c => normHeader(c));
+    if (norm.includes('mace id') || (norm.includes('isin') && norm.includes('issue'))) {
+      headerIdx = i;
+      break;
+    }
+  }
+  if (headerIdx < 0) {
+    throw new Error('Header row not found (looked for "MACE ID" / "ISIN" + "Issue").');
+  }
+
+  const headerRow = aoa[headerIdx];
+  const map = buildHeaderMap(headerRow);
+
+  const requiredFields = ['isin', 'issue'];
+  for (const f of requiredFields) {
+    if (map[f] === undefined) throw new Error(`Required column missing: ${f}`);
+  }
+
+  const dataRows = [];
+  for (let i = headerIdx + 1; i < aoa.length; i++) {
+    const row = aoa[i] || [];
+    const isin = toStr(row[map.isin]);
+    const issue = toStr(row[map.issue]);
+    if (!isin && !issue) continue; // empty row
+    if (!isin && !row[map.maceId]) continue;
+
+    const r = {};
+    r.maceId       = toStr(row[map.maceId] ?? '');
+    r.isin         = isin;
+    r.issue        = issue;
+    r.coupon       = toNum(row[map.coupon]);
+    r.maturity     = excelDate(row[map.maturity]);
+    r.putDate      = excelDate(row[map.putDate]);
+    r.currency     = toStr(row[map.currency]);
+    r.convPrice    = toNum(row[map.convPrice]);
+    r.equityPrice  = toNum(row[map.equityPrice]);
+    r.parity       = toNum(row[map.parity]);
+    r.premium      = toNum(row[map.premium]);
+    r.delta        = toNum(row[map.delta]);
+    r.creditSpread = toNum(row[map.creditSpread]);
+    r.invValue     = toNum(row[map.invValue]);
+    r.premToInvVal = toNum(row[map.premToInvVal]);
+    r.ytmput       = toNum(row[map.ytmput]);
+    r.ytm          = toNum(row[map.ytm]);
+    r.ytp          = toNum(row[map.ytp]);
+    r.ytc          = toNum(row[map.ytc]);
+    r.duration     = toNum(row[map.duration]);
+    r.durationPut  = toNum(row[map.durationPut]);
+    r.sp           = toStr(row[map.sp]);
+    r.moody        = toStr(row[map.moody]);
+    r.mcap         = toNum(row[map.mcap]);
+    r.indexWeight  = toNum(row[map.indexWeight]);
+    r.region       = toStr(row[map.region]) || 'N/A';
+    r.sector       = toStr(row[map.sector]) || 'N/A';
+    r.country      = toStr(row[map.country]) || 'N/A';
+    r.issueDate    = excelDate(row[map.issueDate]);
+    r.mandatory    = toStr(row[map.mandatory]) || 'N/A';
+    r.exchangeable = toStr(row[map.exchangeable]) || 'N/A';
+    r.inputVol     = toNum(row[map.inputVol]);
+    r.equityYield  = toNum(row[map.equityYield]);
+    r.stockBorrow  = toNum(row[map.stockBorrow]);
+    r.theoPrice    = toNum(row[map.theoPrice]);
+    r.edge         = toNum(row[map.edge]);
+    r.iv           = toNum(row[map.iv]);
+    r.gamma        = toNum(row[map.gamma]);
+    r.rho          = toNum(row[map.rho]);
+    r.vega         = toNum(row[map.vega]);
+    r.chi          = toNum(row[map.chi]);
+    r.ric          = toStr(row[map.ric]);
+
+    if (r.isin === '' && r.maceId !== '') r.isin = `MACE-${r.maceId}`;
+    dataRows.push(r);
+  }
+
+  return { rows: dataRows, headerIdx, sheetName, fileName };
+}
+
+/* =========================================================
+   FILE LOADING
+   ========================================================= */
+function readFileAsArrayBuffer(file) {
+  return new Promise((res, rej) => {
+    const r = new FileReader();
+    r.onload = e => res(e.target.result);
+    r.onerror = e => rej(e);
+    r.readAsArrayBuffer(file);
+  });
+}
+
+async function loadUniverseFile(file) {
+  const buf = await readFileAsArrayBuffer(file);
+  const parsed = parseSheet(buf, file.name);
+  state.universe = parsed.rows;
+  state.lastFile = file.name;
+  document.getElementById('header-status').textContent = `${parsed.rows.length} bonds · ${file.name}`;
+  document.getElementById('loaded-file-info').textContent = `Loaded: ${file.name} — sheet "${parsed.sheetName}", header at row ${parsed.headerIdx+1}, ${parsed.rows.length} bonds.`;
+  document.getElementById('universe-content').style.display = 'block';
+  initFilters();
+  applyFilters();
+  // Update T0 default for attribution
+  state.t0 = { rows: parsed.rows, fileName: file.name };
+  document.getElementById('dz-t0').textContent = `(default) ${file.name} · ${parsed.rows.length} bonds`;
+  document.getElementById('dz-t0').classList.add('loaded');
+  updateAttStatus();
+  updatePbSourceInfo();
+}
+
+document.getElementById('file-input-main').addEventListener('change', async e => {
+  const f = e.target.files[0];
+  if (f) await loadUniverseFile(f);
+});
+const dzMain = document.getElementById('dropzone-main');
+dzMain.addEventListener('click', () => document.getElementById('file-input-main').click());
+dzMain.addEventListener('dragover', e => { e.preventDefault(); dzMain.classList.add('dragover'); });
+dzMain.addEventListener('dragleave', () => dzMain.classList.remove('dragover'));
+dzMain.addEventListener('drop', async e => {
+  e.preventDefault(); dzMain.classList.remove('dragover');
+  const f = e.dataTransfer.files[0];
+  if (f) await loadUniverseFile(f);
+});
+
+/* =========================================================
+   FILTERS
+   ========================================================= */
+function initFilters() {
+  // Compute distinct cat values & numeric ranges
+  const catCounts = {};
+  for (const f of state.catFields) catCounts[f] = {};
+  state.universe.forEach(r => {
+    for (const f of state.catFields) {
+      const v = r[f] || 'N/A';
+      catCounts[f][v] = (catCounts[f][v] || 0) + 1;
+    }
+  });
+
+  // Numeric ranges
+  const numRanges = {};
+  for (const k of Object.keys(state.numFields)) {
+    const vals = state.universe.map(state.numFields[k].getter).filter(v => v != null && isFinite(v));
+    if (vals.length === 0) { numRanges[k] = null; continue; }
+    numRanges[k] = { min: Math.min(...vals), max: Math.max(...vals) };
+  }
+  state.numRanges = numRanges;
+
+  // Initialize selections to ALL
+  for (const f of state.catFields) {
+    state.filters.cat[f] = new Set(Object.keys(catCounts[f]));
+  }
+  state.filters.num = {};
+  for (const k of Object.keys(state.numFields)) {
+    if (numRanges[k]) state.filters.num[k] = { min: null, max: null };
+  }
+
+  // Render filter UI
+  const grid = document.getElementById('filters-grid');
+  grid.innerHTML = '';
+
+  // Categorical
+  for (const f of state.catFields) {
+    const block = document.createElement('div');
+    block.className = 'filter-block';
+    const title = document.createElement('div');
+    title.className = 'filter-title';
+    title.textContent = f.charAt(0).toUpperCase() + f.slice(1);
+    block.appendChild(title);
+    const list = document.createElement('div');
+    list.className = 'checkbox-list';
+    const items = Object.entries(catCounts[f]).sort((a,b) => b[1]-a[1]);
+    for (const [val, ct] of items) {
+      const lbl = document.createElement('label');
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.checked = true;
+      cb.dataset.field = f;
+      cb.dataset.value = val;
+      cb.addEventListener('change', e => {
+        if (e.target.checked) state.filters.cat[f].add(val);
+        else state.filters.cat[f].delete(val);
+        applyFilters();
+      });
+      const span = document.createElement('span');
+      span.textContent = val.length > 22 ? val.slice(0,21)+'…' : val;
+      span.title = val;
+      const cs = document.createElement('span');
+      cs.className = 'ct';
+      cs.textContent = ct;
+      lbl.appendChild(cb); lbl.appendChild(span); lbl.appendChild(cs);
+      list.appendChild(lbl);
+    }
+    block.appendChild(list);
+    grid.appendChild(block);
+  }
+
+  // Numeric
+  for (const [k, info] of Object.entries(state.numFields)) {
+    if (!numRanges[k]) continue;
+    const block = document.createElement('div');
+    block.className = 'filter-block';
+    const title = document.createElement('div');
+    title.className = 'filter-title';
+    title.textContent = info.label;
+    block.appendChild(title);
+    const row1 = document.createElement('div');
+    row1.className = 'range-row';
+    row1.innerHTML = `
+      <label>Min</label>
+      <input type="number" data-field="${k}" data-bound="min" placeholder="${fmt(numRanges[k].min, 2)}">
+      <label>Max</label>
+      <input type="number" data-field="${k}" data-bound="max" placeholder="${fmt(numRanges[k].max, 2)}">
+    `;
+    block.appendChild(row1);
+    const meta = document.createElement('div');
+    meta.className = 'range-meta';
+    meta.innerHTML = `<span>min ${fmt(numRanges[k].min,2)}</span><span>max ${fmt(numRanges[k].max,2)}</span>`;
+    block.appendChild(meta);
+    grid.appendChild(block);
+
+    block.querySelectorAll('input').forEach(inp => {
+      inp.addEventListener('input', e => {
+        const v = e.target.value === '' ? null : parseFloat(e.target.value);
+        state.filters.num[k][e.target.dataset.bound] = (v != null && isFinite(v)) ? v : null;
+        applyFilters();
+      });
+    });
+  }
+
+  // Reset button
+  document.getElementById('btn-reset-filters').onclick = () => {
+    for (const f of state.catFields) {
+      state.filters.cat[f] = new Set(Object.keys(catCounts[f]));
+    }
+    document.querySelectorAll('#filters-grid input[type=checkbox]').forEach(cb => cb.checked = true);
+    document.querySelectorAll('#filters-grid input[type=number]').forEach(inp => inp.value = '');
+    for (const k of Object.keys(state.filters.num)) {
+      state.filters.num[k] = { min: null, max: null };
+    }
+    applyFilters();
+  };
+  document.getElementById('btn-export-filtered').onclick = () => exportFilteredCSV();
+}
+
+function applyFilters() {
+  const { cat, num } = state.filters;
+  state.filtered = state.universe.filter(r => {
+    for (const f of state.catFields) {
+      if (!cat[f].has(r[f] || 'N/A')) return false;
+    }
+    for (const [k, range] of Object.entries(num)) {
+      const v = state.numFields[k].getter(r);
+      if (range.min != null) {
+        if (v == null || v < range.min) return false;
+      }
+      if (range.max != null) {
+        if (v == null || v > range.max) return false;
+      }
+    }
+    return true;
+  });
+  document.getElementById('filtered-count').textContent = `(${state.filtered.length} / ${state.universe.length})`;
+  document.getElementById('filter-status').textContent = `${state.filtered.length} of ${state.universe.length} bonds`;
+  document.getElementById('filter-count').textContent = `(${state.filtered.length})`;
+  renderUniverseKPIs();
+  renderUniverseTable();
+  renderUniverseCharts();
+  updatePbSourceInfo();
+}
+
+/* =========================================================
+   FORMATTING
+   ========================================================= */
+function fmt(v, dec=2) {
+  if (v == null || !isFinite(v)) return '–';
+  if (typeof v === 'string') return v;
+  return v.toLocaleString('en-US', { minimumFractionDigits: dec, maximumFractionDigits: dec });
+}
+function fmtPct(v, dec=1) {
+  if (v == null || !isFinite(v)) return '–';
+  return v.toFixed(dec) + '%';
+}
+function fmtBp(v, dec=0) {
+  if (v == null || !isFinite(v)) return '–';
+  return v.toFixed(dec) + ' bp';
+}
+function fmtDate(d) {
+  if (!d) return '–';
+  if (!(d instanceof Date) || !isFinite(d)) return '–';
+  return d.toISOString().slice(0, 10);
+}
+function regionTag(reg) {
+  const cls = { 'Europe': 'eu', 'US': 'us', 'Japan': 'jp', 'Asia ex Japan': 'ax' }[reg] || 'ot';
+  return `<span class="tag region-${cls}">${reg || 'N/A'}</span>`;
+}
+
+/* =========================================================
+   UNIVERSE KPIs
+   ========================================================= */
+function renderUniverseKPIs() {
+  const data = state.filtered;
+  const grid = document.getElementById('kpi-universe');
+  if (data.length === 0) {
+    grid.innerHTML = '<div class="kpi"><div class="label">No bonds</div></div>';
+    return;
+  }
+  const sumMcap = data.reduce((a, r) => a + (r.mcap || 0), 0);
+  const sumIdxW = data.reduce((a, r) => a + (r.indexWeight || 0), 0);
+  const avg = (getter) => {
+    const vs = data.map(getter).filter(v => v != null && isFinite(v));
+    return vs.length ? vs.reduce((a,b)=>a+b,0) / vs.length : null;
+  };
+  const wavg = (getter) => {
+    let num = 0, den = 0;
+    for (const r of data) {
+      const v = getter(r);
+      const w = r.indexWeight || 0;
+      if (v != null && isFinite(v) && isFinite(w)) { num += w * v; den += w; }
+    }
+    return den > 0 ? num / den : null;
+  };
+  const cards = [
+    { label: 'Bonds', value: data.length },
+    { label: 'Σ Index Wt', value: fmtPct(sumIdxW, 2) },
+    { label: 'Σ Mkt Cap (USDm)', value: fmt(sumMcap, 0) },
+    { label: 'Avg Delta', value: fmt(avg(r=>r.delta), 1) },
+    { label: 'Avg Implied Vol', value: fmt(avg(r=>r.iv), 1) },
+    { label: 'Avg Premium', value: fmt(avg(r=>r.premium), 1) },
+    { label: 'Avg Credit Spread', value: fmt(avg(r=>r.creditSpread), 0) },
+    { label: 'Avg Edge', value: fmt(avg(r=>r.edge), 2) },
+    { label: 'Avg Dur. (Mat/Put)', value: fmt(avg(r=>r.durationPut), 2) },
+    { label: 'Avg Coupon', value: fmt(avg(r=>r.coupon), 2) },
+  ];
+  grid.innerHTML = cards.map(c => `
+    <div class="kpi">
+      <div class="label">${c.label}</div>
+      <div class="value">${c.value}</div>
+    </div>`).join('');
+}
+
+/* =========================================================
+   UNIVERSE TABLE
+   ========================================================= */
+const universeCols = [
+  { k:'isin',        h:'ISIN',        text:true },
+  { k:'issue',       h:'Issuer',      text:true },
+  { k:'region',      h:'Region',      text:true, fmt: v => regionTag(v) },
+  { k:'sector',      h:'Sector',      text:true },
+  { k:'currency',    h:'CCY',         text:true },
+  { k:'convPrice',   h:'CB Px',       fmt: v => fmt(v, 2) },
+  { k:'equityPrice', h:'Eq Px',       fmt: v => fmt(v, 2) },
+  { k:'parity',      h:'Parity',      fmt: v => fmt(v, 1) },
+  { k:'premium',     h:'Prem%',       fmt: v => fmt(v, 1) },
+  { k:'delta',       h:'Δ',           fmt: v => fmt(v, 1) },
+  { k:'iv',          h:'IV',          fmt: v => fmt(v, 1) },
+  { k:'edge',        h:'Edge',        fmt: v => fmt(v, 2) },
+  { k:'gamma',       h:'Γ',           fmt: v => fmt(v, 3) },
+  { k:'vega',        h:'Vega',        fmt: v => fmt(v, 3) },
+  { k:'creditSpread',h:'CS',          fmt: v => fmt(v, 0) },
+  { k:'durationPut', h:'Dur P/M',     fmt: v => fmt(v, 2) },
+  { k:'ytmput',      h:'YTM/P',       fmt: v => fmt(v, 2) },
+  { k:'mcap',        h:'MCap (USDm)', fmt: v => fmt(v, 0) },
+  { k:'indexWeight', h:'Idx Wt%',     fmt: v => fmt(v, 3) },
+  { k:'maturity',    h:'Maturity',    text:true, fmt: v => fmtDate(v) },
+];
+
+function renderUniverseTable() {
+  const tbl = document.getElementById('tbl-universe');
+  const thead = tbl.querySelector('thead');
+  const tbody = tbl.querySelector('tbody');
+  thead.innerHTML = '<tr>' + universeCols.map(c => {
+    const sortCls = (state.sortState.universe.col === c.k)
+      ? (state.sortState.universe.dir > 0 ? 'sorted-asc' : 'sorted-desc') : '';
+    return `<th class="${c.text?'text-col':''} ${sortCls}" data-col="${c.k}">${c.h}</th>`;
+  }).join('') + '</tr>';
+  thead.querySelectorAll('th').forEach(th => {
+    th.addEventListener('click', () => {
+      const col = th.dataset.col;
+      if (state.sortState.universe.col === col) state.sortState.universe.dir *= -1;
+      else { state.sortState.universe.col = col; state.sortState.universe.dir = 1; }
+      renderUniverseTable();
+    });
+  });
+
+  let data = state.filtered.slice();
+  const sc = state.sortState.universe;
+  if (sc.col) {
+    const dir = sc.dir;
+    data.sort((a,b) => {
+      const va = a[sc.col], vb = b[sc.col];
+      if (va == null && vb == null) return 0;
+      if (va == null) return 1;
+      if (vb == null) return -1;
+      if (typeof va === 'number' && typeof vb === 'number') return dir * (va - vb);
+      return dir * String(va).localeCompare(String(vb));
+    });
+  }
+  data = data.slice(0, 500);
+
+  tbody.innerHTML = data.map(r => '<tr>' + universeCols.map(c => {
+    const v = r[c.k];
+    const disp = c.fmt ? c.fmt(v) : (v == null ? '–' : v);
+    return `<td class="${c.text?'text-col':''}">${disp}</td>`;
+  }).join('') + '</tr>').join('');
+
+  if (data.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="${universeCols.length}" class="no-data">No bonds match current filters.</td></tr>`;
+  } else if (state.filtered.length > data.length) {
+    tbody.innerHTML += `<tr><td colspan="${universeCols.length}" class="no-data">Showing first ${data.length} of ${state.filtered.length}. Sort to navigate, or export CSV for full set.</td></tr>`;
+  }
+}
+
+/* =========================================================
+   CHARTS - UNIVERSE
+   ========================================================= */
+const CHART_COLORS = ['#4cc9f0', '#f9a826', '#3fb950', '#c06cd4', '#f85149', '#56a3f5', '#e3b341', '#79c0ff', '#d2a8ff', '#ff7b72'];
+const chartDefaults = {
+  responsive: true, maintainAspectRatio: false,
+  plugins: {
+    legend: { display: false },
+    tooltip: { backgroundColor: '#1c232c', borderColor: '#2a3340', borderWidth: 1, titleColor: '#e6edf3', bodyColor: '#e6edf3', padding: 8 }
+  },
+  scales: {
+    x: { ticks: { color: '#8b949e', font: { size: 10, family: 'IBM Plex Mono' } }, grid: { color: '#1e252f' } },
+    y: { ticks: { color: '#8b949e', font: { size: 10, family: 'IBM Plex Mono' } }, grid: { color: '#1e252f' } }
+  }
+};
+
+function destroyChart(id) {
+  if (state.charts[id]) { state.charts[id].destroy(); delete state.charts[id]; }
+}
+
+function categoryCounts(data, getter) {
+  const c = {};
+  data.forEach(r => { const v = getter(r) || 'N/A'; c[v] = (c[v] || 0) + 1; });
+  return Object.entries(c).sort((a,b) => b[1]-a[1]);
+}
+
+function histBins(values, nbins, min, max) {
+  if (values.length === 0) return { labels: [], counts: [] };
+  const lo = min != null ? min : Math.min(...values);
+  const hi = max != null ? max : Math.max(...values);
+  const w = (hi - lo) / nbins || 1;
+  const counts = new Array(nbins).fill(0);
+  values.forEach(v => {
+    let idx = Math.floor((v - lo) / w);
+    if (idx >= nbins) idx = nbins - 1;
+    if (idx < 0) idx = 0;
+    counts[idx]++;
+  });
+  const labels = counts.map((_, i) => `${(lo + i*w).toFixed(0)}`);
+  return { labels, counts };
+}
+
+function renderUniverseCharts() {
+  const data = state.filtered;
+
+  // By region
+  destroyChart('region');
+  const regs = categoryCounts(data, r => r.region);
+  state.charts.region = new Chart(document.getElementById('ch-region'), {
+    type: 'bar',
+    data: { labels: regs.map(r=>r[0]), datasets: [{ data: regs.map(r=>r[1]), backgroundColor: CHART_COLORS[0] }] },
+    options: { ...chartDefaults, indexAxis: 'y' }
+  });
+
+  // By sector
+  destroyChart('sector');
+  const secs = categoryCounts(data, r => r.sector).slice(0, 12);
+  state.charts.sector = new Chart(document.getElementById('ch-sector'), {
+    type: 'bar',
+    data: { labels: secs.map(r=>r[0]), datasets: [{ data: secs.map(r=>r[1]), backgroundColor: CHART_COLORS[1] }] },
+    options: { ...chartDefaults, indexAxis: 'y' }
+  });
+
+  // Delta hist
+  const deltaVals = data.map(r => r.delta).filter(v => v != null);
+  destroyChart('delta');
+  const dh = histBins(deltaVals, 10, 0, 100);
+  state.charts.delta = new Chart(document.getElementById('ch-delta'), {
+    type: 'bar',
+    data: { labels: dh.labels, datasets: [{ data: dh.counts, backgroundColor: CHART_COLORS[2] }] },
+    options: chartDefaults
+  });
+
+  // IV hist
+  const ivVals = data.map(r => r.iv).filter(v => v != null && v < 200);
+  destroyChart('iv');
+  const ivh = histBins(ivVals, 12);
+  state.charts.iv = new Chart(document.getElementById('ch-iv'), {
+    type: 'bar',
+    data: { labels: ivh.labels, datasets: [{ data: ivh.counts, backgroundColor: CHART_COLORS[3] }] },
+    options: chartDefaults
+  });
+
+  // CS hist
+  const csVals = data.map(r => r.creditSpread).filter(v => v != null && v < 2000);
+  destroyChart('cs');
+  const csh = histBins(csVals, 12);
+  state.charts.cs = new Chart(document.getElementById('ch-cs'), {
+    type: 'bar',
+    data: { labels: csh.labels, datasets: [{ data: csh.counts, backgroundColor: CHART_COLORS[4] }] },
+    options: chartDefaults
+  });
+
+  // Edge hist
+  const edgeVals = data.map(r => r.edge).filter(v => v != null && Math.abs(v) < 50);
+  destroyChart('edge');
+  const edgeh = histBins(edgeVals, 12);
+  state.charts.edge = new Chart(document.getElementById('ch-edge'), {
+    type: 'bar',
+    data: { labels: edgeh.labels, datasets: [{ data: edgeh.counts, backgroundColor: CHART_COLORS[5] }] },
+    options: chartDefaults
+  });
+}
+
+/* =========================================================
+   PORTFOLIO BUILDER
+   ========================================================= */
+function updatePbSourceInfo() {
+  const src = document.getElementById('pb-source').value;
+  const n = (src === 'filtered' ? state.filtered : state.universe).length;
+  document.getElementById('pb-source-info').textContent = `${n} bonds available`;
+}
+document.getElementById('pb-source').addEventListener('change', updatePbSourceInfo);
+
+function getPbSource() {
+  const src = document.getElementById('pb-source').value;
+  return (src === 'filtered' ? state.filtered : state.universe).slice();
+}
+
+function initialWeights(rows, scheme) {
+  const n = rows.length;
+  if (n === 0) return [];
+  let raw;
+  switch(scheme) {
+    case 'equal':
+      raw = rows.map(_ => 1);
+      break;
+    case 'mcap':
+      raw = rows.map(r => Math.max(0, r.mcap || 0));
+      break;
+    case 'index':
+      raw = rows.map(r => Math.max(0, r.indexWeight || 0));
+      break;
+    case 'delta':
+      raw = rows.map(r => Math.max(0.01, r.delta || 0));
+      break;
+    case 'gamma':
+      raw = rows.map(r => Math.max(0.01, (r.gamma != null ? r.gamma : 0)));
+      break;
+    case 'edge':
+      raw = rows.map(r => Math.max(0.01, (r.edge != null ? r.edge : 0)));
+      break;
+    default:
+      raw = rows.map(_ => 1);
+  }
+  const tot = raw.reduce((a,b)=>a+b, 0);
+  if (tot <= 0) return rows.map(_ => 1/n);
+  return raw.map(v => v / tot);
+}
+
+function applyTilt(rows, weights) {
+  const mode = document.getElementById('pb-tilt-mode').value;
+  if (mode === 'none') return weights;
+  const metric = document.getElementById('pb-tilt-metric').value;
+  const target = parseFloat(document.getElementById('pb-tilt-target').value) || 0;
+  const lambda = parseFloat(document.getElementById('pb-tilt-lambda').value) || 0;
+  if (lambda <= 0) return weights;
+
+  const metricGetter = {
+    delta: r=>r.delta, iv: r=>r.iv, gamma: r=>r.gamma, vega: r=>r.vega, edge: r=>r.edge,
+    duration: r=>r.durationPut, creditSpread: r=>r.creditSpread, premium: r=>r.premium, ytmput: r=>r.ytmput
+  }[metric];
+
+  // Normalize metric scale (robust variance)
+  const xs = rows.map(metricGetter).filter(v => v != null && isFinite(v));
+  let xstd = 1;
+  if (xs.length > 1) {
+    const mean = xs.reduce((a,b)=>a+b,0) / xs.length;
+    const v = xs.reduce((a,b)=>a+(b-mean)*(b-mean),0) / xs.length;
+    xstd = Math.sqrt(Math.max(v, 1e-12)) || 1;
+  }
+
+  const newW = weights.map((w, i) => {
+    const x = metricGetter(rows[i]);
+    if (x == null) return w * 0.5;  // penalize missing
+    let f;
+    if (mode === 'target') {
+      const z = (x - target) / xstd;
+      f = Math.exp(-lambda * z * z);
+    } else if (mode === 'maximize') {
+      const z = x / xstd;
+      f = Math.exp(lambda * z);
+    } else if (mode === 'minimize') {
+      const z = x / xstd;
+      f = Math.exp(-lambda * z);
+    } else {
+      f = 1;
+    }
+    return w * f;
+  });
+  const tot = newW.reduce((a,b)=>a+b, 0);
+  return tot > 0 ? newW.map(v => v/tot) : weights;
+}
+
+function applyConstraints(rows, weights) {
+  const maxPos = parseFloat(document.getElementById('pb-max-pos').value) / 100;
+  const maxIssuer = parseFloat(document.getElementById('pb-max-issuer').value) / 100;
+  const maxSector = parseFloat(document.getElementById('pb-max-sector').value) / 100;
+  const maxRegion = parseFloat(document.getElementById('pb-max-region').value) / 100;
+  const maxN = parseInt(document.getElementById('pb-max-n').value) || 0;
+  const minPos = parseFloat(document.getElementById('pb-min-pos').value) / 100;
+
+  let w = weights.slice();
+
+  // 1) Apply max nb of positions if set
+  if (maxN > 0 && rows.length > maxN) {
+    // keep top-N by weight
+    const idx = w.map((_, i) => i).sort((a,b) => w[b] - w[a]).slice(0, maxN);
+    const keep = new Set(idx);
+    w = w.map((v, i) => keep.has(i) ? v : 0);
+  }
+
+  // 2) Trim positions below minPos and renormalize iteratively
+  for (let pass = 0; pass < 5; pass++) {
+    const tot = w.reduce((a,b)=>a+b, 0);
+    if (tot <= 0) break;
+    w = w.map(v => v / tot);
+    let changed = false;
+    for (let i = 0; i < w.length; i++) {
+      if (w[i] > 0 && w[i] < minPos) { w[i] = 0; changed = true; }
+    }
+    if (!changed) break;
+  }
+  // Renormalize after min-pos trim
+  let tot = w.reduce((a,b)=>a+b,0);
+  if (tot > 0) w = w.map(v => v/tot);
+
+  // 3) Iteratively cap and redistribute
+  const issuerOf = i => rows[i].issue;
+  const sectorOf = i => rows[i].sector;
+  const regionOf = i => rows[i].region;
+
+  function capAndRedistribute(getCat, capLimit) {
+    for (let iter = 0; iter < 50; iter++) {
+      const groupSums = {};
+      for (let i = 0; i < w.length; i++) {
+        if (w[i] <= 0) continue;
+        const k = getCat(i);
+        groupSums[k] = (groupSums[k] || 0) + w[i];
+      }
+      let violation = false;
+      for (const [k, s] of Object.entries(groupSums)) {
+        if (s > capLimit + 1e-9) {
+          violation = true;
+          // Scale down all weights in this group proportionally
+          const factor = capLimit / s;
+          const excess = s - capLimit;
+          for (let i = 0; i < w.length; i++) {
+            if (w[i] > 0 && getCat(i) === k) w[i] *= factor;
+          }
+          // Redistribute excess to weights outside this group, proportionally
+          const outsideTot = w.reduce((a,b,i) => a + (getCat(i) === k ? 0 : b), 0);
+          if (outsideTot > 0) {
+            for (let i = 0; i < w.length; i++) {
+              if (w[i] > 0 && getCat(i) !== k) w[i] += excess * (w[i] / outsideTot);
+            }
+          }
+        }
+      }
+      if (!violation) break;
+    }
+  }
+
+  // Single position cap: just clip & redistribute uniformly to others
+  for (let iter = 0; iter < 50; iter++) {
+    let viol = false;
+    for (let i = 0; i < w.length; i++) {
+      if (w[i] > maxPos + 1e-9) {
+        const excess = w[i] - maxPos;
+        w[i] = maxPos;
+        const outsideTot = w.reduce((a,b,j) => a + (j === i ? 0 : b), 0);
+        if (outsideTot > 0) {
+          for (let j = 0; j < w.length; j++) {
+            if (j !== i && w[j] > 0) w[j] += excess * (w[j] / outsideTot);
+          }
+        }
+        viol = true;
+      }
+    }
+    if (!viol) break;
+  }
+
+  capAndRedistribute(issuerOf, maxIssuer);
+  capAndRedistribute(sectorOf, maxSector);
+  capAndRedistribute(regionOf, maxRegion);
+
+  // Final pass on max position (in case redistributions caused new violations)
+  for (let iter = 0; iter < 50; iter++) {
+    let viol = false;
+    for (let i = 0; i < w.length; i++) {
+      if (w[i] > maxPos + 1e-9) {
+        const excess = w[i] - maxPos;
+        w[i] = maxPos;
+        const outsideTot = w.reduce((a,b,j) => a + (j === i ? 0 : b), 0);
+        if (outsideTot > 0) {
+          for (let j = 0; j < w.length; j++) {
+            if (j !== i && w[j] > 0) w[j] += excess * (w[j] / outsideTot);
+          }
+        }
+        viol = true;
+      }
+    }
+    if (!viol) break;
+  }
+
+  // Renormalize defensively
+  tot = w.reduce((a,b)=>a+b, 0);
+  if (tot > 0) w = w.map(v => v/tot);
+  return w;
+}
+
+function buildPortfolio() {
+  const rows = getPbSource();
+  if (rows.length === 0) {
+    alert('No bonds in source universe.');
+    return;
+  }
+  const scheme = document.getElementById('pb-weighting').value;
+  const notional = parseFloat(document.getElementById('pb-notional').value) || 100;
+
+  let w = initialWeights(rows, scheme);
+  w = applyTilt(rows, w);
+  w = applyConstraints(rows, w);
+
+  // Build holdings
+  const holdings = rows.map((r, i) => ({ ...r, weight: w[i] })).filter(h => h.weight > 0);
+  // Sort by weight desc
+  holdings.sort((a,b) => b.weight - a.weight);
+
+  state.portfolio = {
+    holdings,
+    notional,
+    settings: {
+      scheme,
+      tiltMode: document.getElementById('pb-tilt-mode').value,
+      tiltMetric: document.getElementById('pb-tilt-metric').value,
+      tiltTarget: parseFloat(document.getElementById('pb-tilt-target').value),
+      tiltLambda: parseFloat(document.getElementById('pb-tilt-lambda').value),
+      maxPos: parseFloat(document.getElementById('pb-max-pos').value),
+      maxIssuer: parseFloat(document.getElementById('pb-max-issuer').value),
+      maxSector: parseFloat(document.getElementById('pb-max-sector').value),
+      maxRegion: parseFloat(document.getElementById('pb-max-region').value),
+      maxN: parseInt(document.getElementById('pb-max-n').value),
+      minPos: parseFloat(document.getElementById('pb-min-pos').value),
+    }
+  };
+
+  document.getElementById('pb-status').textContent = `Built: ${holdings.length} positions`;
+  document.getElementById('portfolio-content').style.display = 'block';
+  renderPortfolioKPIs();
+  renderPortfolioCharts();
+  renderPortfolioTable();
+}
+
+document.getElementById('btn-build-portfolio').onclick = buildPortfolio;
+
+function renderPortfolioKPIs() {
+  const p = state.portfolio;
+  if (!p) return;
+  const h = p.holdings;
+  const wsum = h.reduce((a,r)=>a+r.weight, 0);
+  const wavg = (getter) => {
+    let num = 0, den = 0;
+    for (const r of h) {
+      const v = getter(r);
+      if (v != null && isFinite(v)) { num += r.weight * v; den += r.weight; }
+    }
+    return den > 0 ? num/den : null;
+  };
+  const wsum_metric = (getter) => {
+    let num = 0;
+    for (const r of h) {
+      const v = getter(r);
+      if (v != null && isFinite(v)) num += r.weight * v;
+    }
+    return num;
+  };
+  // Issuer HHI
+  const issuerW = {};
+  h.forEach(r => issuerW[r.issue] = (issuerW[r.issue]||0) + r.weight);
+  const hhi = Object.values(issuerW).reduce((a,b)=>a+b*b,0);
+  const effN = hhi > 0 ? 1/hhi : 0;
+  // Top 10 concentration
+  const sortedW = h.map(r=>r.weight).sort((a,b)=>b-a);
+  const top10 = sortedW.slice(0, 10).reduce((a,b)=>a+b, 0);
+
+  const cards = [
+    { label: 'Positions', value: h.length },
+    { label: 'Issuers', value: Object.keys(issuerW).length },
+    { label: 'Effective N (1/HHI)', value: fmt(effN, 1) },
+    { label: 'Top 10 wt', value: fmtPct(top10*100, 1) },
+    { label: 'W. Avg Δ', value: fmt(wavg(r=>r.delta), 1) },
+    { label: 'W. Avg IV', value: fmt(wavg(r=>r.iv), 1) },
+    { label: 'W. Avg Premium', value: fmt(wavg(r=>r.premium), 1) },
+    { label: 'W. Avg CS (bp)', value: fmt(wavg(r=>r.creditSpread), 0) },
+    { label: 'W. Avg Edge', value: fmt(wavg(r=>r.edge), 2) },
+    { label: 'W. Avg Γ', value: fmt(wavg(r=>r.gamma), 3) },
+    { label: 'W. Avg Vega', value: fmt(wavg(r=>r.vega), 3) },
+    { label: 'W. Avg Dur P/M', value: fmt(wavg(r=>r.durationPut), 2) },
+    { label: 'W. Avg YTM/P', value: fmt(wavg(r=>r.ytmput), 2) },
+    { label: 'Notional (USDm)', value: fmt(p.notional, 0) },
+  ];
+  document.getElementById('kpi-portfolio').innerHTML = cards.map(c =>
+    `<div class="kpi"><div class="label">${c.label}</div><div class="value">${c.value}</div></div>`).join('');
+}
+
+function bucketsByCat(holdings, getter) {
+  const m = {};
+  holdings.forEach(h => { const k = getter(h) || 'N/A'; m[k] = (m[k] || 0) + h.weight; });
+  return Object.entries(m).sort((a,b) => b[1]-a[1]);
+}
+
+function deltaBucket(d) {
+  if (d == null) return 'N/A';
+  if (d < 30) return 'Low Δ (0-30)';
+  if (d < 70) return 'Bal Δ (30-70)';
+  return 'Equity-like Δ (70+)';
+}
+
+function pieChart(canvasId, labels, values, palette) {
+  destroyChart(canvasId);
+  state.charts[canvasId] = new Chart(document.getElementById(canvasId), {
+    type: 'doughnut',
+    data: { labels, datasets: [{ data: values, backgroundColor: palette || CHART_COLORS, borderWidth: 1, borderColor: '#0e1116' }] },
+    options: {
+      ...chartDefaults,
+      plugins: {
+        ...chartDefaults.plugins,
+        legend: { display: true, position: 'right', labels: { color: '#e6edf3', font: { size: 10, family: 'IBM Plex Sans' }, boxWidth: 10 } },
+        tooltip: {
+          ...chartDefaults.plugins.tooltip,
+          callbacks: { label: (ctx) => `${ctx.label}: ${(ctx.parsed*100).toFixed(1)}%` }
+        }
+      },
+      scales: {}
+    }
+  });
+}
+
+function renderPortfolioCharts() {
+  const h = state.portfolio.holdings;
+
+  let regs = bucketsByCat(h, r => r.region);
+  pieChart('ch-pb-region', regs.map(r=>r[0]), regs.map(r=>r[1]));
+
+  let secs = bucketsByCat(h, r => r.sector);
+  pieChart('ch-pb-sector', secs.map(r=>r[0]), secs.map(r=>r[1]));
+
+  let dbs = bucketsByCat(h, r => deltaBucket(r.delta));
+  pieChart('ch-pb-delta', dbs.map(r=>r[0]), dbs.map(r=>r[1]));
+
+  let ccys = bucketsByCat(h, r => r.currency);
+  pieChart('ch-pb-ccy', ccys.map(r=>r[0]), ccys.map(r=>r[1]));
+}
+
+const portfolioCols = [
+  { k:'isin', h:'ISIN', text:true },
+  { k:'issue', h:'Issuer', text:true },
+  { k:'region', h:'Region', text:true, fmt: v => regionTag(v) },
+  { k:'sector', h:'Sector', text:true },
+  { k:'currency', h:'CCY', text:true },
+  { k:'weight', h:'Weight %', fmt: v => fmt(v*100, 3) },
+  { k:'_dollar', h:'$ Notional (USDm)' },
+  { k:'convPrice', h:'CB Px', fmt: v => fmt(v,2) },
+  { k:'delta', h:'Δ', fmt: v => fmt(v,1) },
+  { k:'iv', h:'IV', fmt: v => fmt(v,1) },
+  { k:'edge', h:'Edge', fmt: v => fmt(v,2) },
+  { k:'gamma', h:'Γ', fmt: v => fmt(v,3) },
+  { k:'vega', h:'Vega', fmt: v => fmt(v,3) },
+  { k:'creditSpread', h:'CS', fmt: v => fmt(v,0) },
+  { k:'durationPut', h:'Dur P/M', fmt: v => fmt(v,2) },
+  { k:'mcap', h:'MCap', fmt: v => fmt(v,0) },
+];
+
+function renderPortfolioTable() {
+  const tbl = document.getElementById('tbl-portfolio');
+  const thead = tbl.querySelector('thead');
+  const tbody = tbl.querySelector('tbody');
+  const sc = state.sortState.portfolio;
+  thead.innerHTML = '<tr>' + portfolioCols.map(c => {
+    const cls = (sc.col === c.k) ? (sc.dir > 0 ? 'sorted-asc' : 'sorted-desc') : '';
+    return `<th class="${c.text?'text-col':''} ${cls}" data-col="${c.k}">${c.h}</th>`;
+  }).join('') + '</tr>';
+  thead.querySelectorAll('th').forEach(th => {
+    th.addEventListener('click', () => {
+      const col = th.dataset.col;
+      if (sc.col === col) sc.dir *= -1;
+      else { sc.col = col; sc.dir = 1; }
+      renderPortfolioTable();
+    });
+  });
+
+  let h = state.portfolio.holdings.slice();
+  if (sc.col) {
+    const dir = sc.dir;
+    h.sort((a,b) => {
+      let va = a[sc.col], vb = b[sc.col];
+      if (sc.col === '_dollar') { va = a.weight; vb = b.weight; }
+      if (va == null && vb == null) return 0;
+      if (va == null) return 1;
+      if (vb == null) return -1;
+      if (typeof va === 'number' && typeof vb === 'number') return dir * (va - vb);
+      return dir * String(va).localeCompare(String(vb));
+    });
+  }
+
+  document.getElementById('pb-holdings-count').textContent = `(${state.portfolio.holdings.length} positions)`;
+
+  tbody.innerHTML = h.map(r => '<tr>' + portfolioCols.map(c => {
+    let v;
+    if (c.k === '_dollar') v = r.weight * state.portfolio.notional;
+    else v = r[c.k];
+    let disp = c.fmt ? c.fmt(v) : (v == null ? '–' : v);
+    if (c.k === '_dollar') disp = fmt(v, 2);
+    return `<td class="${c.text?'text-col':''}">${disp}</td>`;
+  }).join('') + '</tr>').join('');
+}
+
+/* =========================================================
+   PORTFOLIO EXPORT / SAVE / LOAD
+   ========================================================= */
+document.getElementById('btn-export-portfolio').onclick = () => {
+  if (!state.portfolio) { alert('Build a portfolio first.'); return; }
+  const cols = ['isin','maceId','issue','region','sector','currency','weight','dollarNotional','convPrice','equityPrice','parity','premium','delta','iv','edge','gamma','vega','creditSpread','durationPut','ytmput','mcap','indexWeight','maturity'];
+  const rows = state.portfolio.holdings.map(r => ({
+    isin: r.isin, maceId: r.maceId, issue: r.issue, region: r.region, sector: r.sector, currency: r.currency,
+    weight: (r.weight*100).toFixed(4), dollarNotional: (r.weight*state.portfolio.notional).toFixed(4),
+    convPrice: r.convPrice, equityPrice: r.equityPrice, parity: r.parity, premium: r.premium,
+    delta: r.delta, iv: r.iv, edge: r.edge, gamma: r.gamma, vega: r.vega,
+    creditSpread: r.creditSpread, durationPut: r.durationPut, ytmput: r.ytmput,
+    mcap: r.mcap, indexWeight: r.indexWeight, maturity: fmtDate(r.maturity)
+  }));
+  const csv = [cols.join(',')].concat(rows.map(r => cols.map(c => csvCell(r[c])).join(','))).join('\n');
+  downloadFile(csv, `cb_portfolio_${todayStr()}.csv`, 'text/csv');
+};
+document.getElementById('btn-save-portfolio').onclick = () => {
+  if (!state.portfolio) { alert('Build a portfolio first.'); return; }
+  const obj = {
+    settings: state.portfolio.settings,
+    notional: state.portfolio.notional,
+    holdings: state.portfolio.holdings.map(h => ({ isin: h.isin, maceId: h.maceId, issue: h.issue, weight: h.weight }))
+  };
+  downloadFile(JSON.stringify(obj, null, 2), `cb_portfolio_${todayStr()}.json`, 'application/json');
+};
+document.getElementById('btn-load-portfolio').onclick = () => {
+  document.getElementById('pb-load-input').click();
+};
+document.getElementById('pb-load-input').addEventListener('change', e => {
+  const f = e.target.files[0];
+  if (!f) return;
+  if (state.universe.length === 0) { alert('Load a CB universe file first (Universe tab).'); return; }
+  const r = new FileReader();
+  r.onload = ev => {
+    try {
+      const obj = JSON.parse(ev.target.result);
+      // Match holdings against current universe by ISIN
+      const idx = {};
+      state.universe.forEach(r => { idx[r.isin] = r; if (r.maceId) idx['MACE-'+r.maceId] = r; });
+      const holdings = [];
+      let unmatched = 0;
+      obj.holdings.forEach(h => {
+        const u = idx[h.isin] || (h.maceId ? idx['MACE-'+h.maceId] : null);
+        if (u) holdings.push({ ...u, weight: h.weight });
+        else unmatched++;
+      });
+      // Renormalize
+      const tot = holdings.reduce((a,b)=>a+b.weight, 0);
+      if (tot > 0) holdings.forEach(h => h.weight /= tot);
+      holdings.sort((a,b) => b.weight - a.weight);
+      state.portfolio = {
+        holdings, notional: obj.notional || 100,
+        settings: obj.settings || {}
+      };
+      document.getElementById('pb-status').textContent = `Loaded ${holdings.length} positions${unmatched? ' ('+unmatched+' unmatched)':''}`;
+      document.getElementById('portfolio-content').style.display = 'block';
+      renderPortfolioKPIs();
+      renderPortfolioCharts();
+      renderPortfolioTable();
+    } catch(err) {
+      alert('Invalid portfolio JSON: ' + err.message);
+    }
+  };
+  r.readAsText(f);
+});
+
+function exportFilteredCSV() {
+  if (!state.filtered.length) { alert('No filtered bonds.'); return; }
+  const cols = ['maceId','isin','issue','region','sector','country','currency','convPrice','equityPrice','parity','premium','delta','iv','inputVol','edge','gamma','vega','rho','creditSpread','duration','durationPut','ytmput','coupon','maturity','putDate','mcap','indexWeight','mandatory','exchangeable'];
+  const rows = state.filtered.map(r => {
+    const o = {};
+    cols.forEach(c => { o[c] = (c==='maturity' || c==='putDate') ? fmtDate(r[c]) : r[c]; });
+    return o;
+  });
+  const csv = [cols.join(',')].concat(rows.map(r => cols.map(c => csvCell(r[c])).join(','))).join('\n');
+  downloadFile(csv, `cb_filtered_${todayStr()}.csv`, 'text/csv');
+}
+
+function csvCell(v) {
+  if (v == null) return '';
+  const s = String(v);
+  if (/[",\n]/.test(s)) return '"' + s.replace(/"/g, '""') + '"';
+  return s;
+}
+function downloadFile(content, name, mime) {
+  const blob = new Blob([content], { type: mime + ';charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = name; a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 100);
+}
+function todayStr() {
+  const d = new Date();
+  return d.toISOString().slice(0,10).replace(/-/g,'');
+}
+
+/* =========================================================
+   ATTRIBUTION
+   ========================================================= */
+async function loadAttFile(file, slot) {
+  const buf = await readFileAsArrayBuffer(file);
+  const parsed = parseSheet(buf, file.name);
+  state[slot] = { rows: parsed.rows, fileName: file.name };
+  document.getElementById('dz-' + slot).textContent = `${file.name} · ${parsed.rows.length} bonds`;
+  document.getElementById('dz-' + slot).classList.add('loaded');
+  updateAttStatus();
+}
+function updateAttStatus() {
+  const t0 = state.t0, t1 = state.t1;
+  const el = document.getElementById('att-status');
+  if (!t0 && !t1) el.textContent = 'Load both snapshots';
+  else if (!t1) el.textContent = `T₀: ${t0.fileName} · waiting for T₁`;
+  else if (!t0) el.textContent = `T₁: ${t1.fileName} · waiting for T₀`;
+  else el.textContent = `T₀: ${t0.fileName} (${t0.rows.length}) | T₁: ${t1.fileName} (${t1.rows.length})`;
+}
+
+['t0','t1'].forEach(slot => {
+  const dz = document.getElementById('dz-' + slot);
+  const inp = document.getElementById('file-' + slot);
+  dz.addEventListener('click', () => inp.click());
+  dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('dragover'); });
+  dz.addEventListener('dragleave', () => dz.classList.remove('dragover'));
+  dz.addEventListener('drop', async e => {
+    e.preventDefault(); dz.classList.remove('dragover');
+    if (e.dataTransfer.files[0]) await loadAttFile(e.dataTransfer.files[0], slot);
+  });
+  inp.addEventListener('change', async e => {
+    if (e.target.files[0]) await loadAttFile(e.target.files[0], slot);
+  });
+});
+
+function buildIndex(rows, key) {
+  const m = {};
+  rows.forEach(r => {
+    if (key === 'mace') {
+      if (r.maceId) m['M-'+r.maceId] = r;
+    } else {
+      if (r.isin) m['I-'+r.isin] = r;
+      if (r.maceId) m['M-'+r.maceId] = r;
+    }
+  });
+  return m;
+}
+
+function getKey(r, key) {
+  if (key === 'mace') return r.maceId ? 'M-'+r.maceId : null;
+  // isin first, fallback mace
+  return r.isin ? 'I-'+r.isin : (r.maceId ? 'M-'+r.maceId : null);
+}
+
+function runAttribution() {
+  if (!state.t0 || !state.t1) { alert('Load both snapshots first.'); return; }
+  const matchKey = document.getElementById('att-key').value;
+  const idx0 = buildIndex(state.t0.rows, matchKey);
+  const idx1 = buildIndex(state.t1.rows, matchKey);
+
+  // For each T0 bond, try to match in T1
+  const matched = [];
+  const dropped = [];
+  state.t0.rows.forEach(r0 => {
+    const k = getKey(r0, matchKey);
+    if (!k) return;
+    let r1 = idx1[k];
+    if (!r1 && matchKey !== 'mace' && r0.maceId) r1 = idx1['M-'+r0.maceId];
+    if (r1) matched.push({ r0, r1 });
+    else dropped.push({ r0 });
+  });
+  // Bonds in T1 not in T0
+  const added = state.t1.rows.filter(r1 => {
+    const k = getKey(r1, matchKey);
+    if (!k) return false;
+    if (idx0[k]) return false;
+    if (r1.maceId && idx0['M-'+r1.maceId]) return false;
+    return true;
+  });
+
+  // Compute returns
+  const mode = document.getElementById('att-mode').value;
+  const couponMode = document.getElementById('att-coupon').value;
+  // Date diff
+  let dt_years = 0;
+  // Try to derive from filenames or use a default
+  // No reliable way without snapshot dates — set to 0 unless user provides via filename pattern (e.g., 20250508)
+  const m0 = state.t0.fileName.match(/(\d{4})(\d{2})(\d{2})/);
+  const m1 = state.t1.fileName.match(/(\d{4})(\d{2})(\d{2})/);
+  if (m0 && m1) {
+    const d0 = new Date(`${m0[1]}-${m0[2]}-${m0[3]}`);
+    const d1 = new Date(`${m1[1]}-${m1[2]}-${m1[3]}`);
+    dt_years = (d1 - d0) / (365.25 * 24 * 3600 * 1000);
+  }
+
+  matched.forEach(m => {
+    const r0 = m.r0, r1 = m.r1;
+    if (r0.convPrice == null || r1.convPrice == null || r0.convPrice <= 0) {
+      m.ret = null; return;
+    }
+    const dP_cb = r1.convPrice - r0.convPrice;
+    const dParity = (r1.parity != null && r0.parity != null) ? (r1.parity - r0.parity) : null;
+    let ret;
+    if (mode === 'outright') {
+      ret = dP_cb / r0.convPrice;
+    } else {
+      // delta-hedged: (dP_CB - delta_t0/100 * dParity) / P_CB_t0
+      if (r0.delta == null || dParity == null) { m.ret = null; return; }
+      ret = (dP_cb - (r0.delta/100) * dParity) / r0.convPrice;
+    }
+    if (couponMode === 'yes' && r0.coupon != null && dt_years > 0) {
+      ret += (r0.coupon / 100) * dt_years;  // coupon in % of par, accrual = coupon * dt
+    }
+    m.ret = ret;
+    m.dP_cb = dP_cb;
+    m.dParity = dParity;
+  });
+
+  // Determine portfolio weights
+  const portMode = document.getElementById('att-portfolio').value;
+  let weights = {};  // map key -> weight
+  let portSource = null;
+  if (portMode === 'builder' && state.portfolio) {
+    state.portfolio.holdings.forEach(h => {
+      const k = (matchKey === 'mace' ? (h.maceId ? 'M-'+h.maceId : null) : (h.isin ? 'I-'+h.isin : (h.maceId ? 'M-'+h.maceId : null)));
+      if (k) weights[k] = h.weight;
+    });
+    portSource = 'builder';
+  } else {
+    // Use a synthetic weighting
+    const matchedKeys = matched.map(m => getKey(m.r0, matchKey)).filter(Boolean);
+    if (portMode === 'equal' || portMode === 'builder') {
+      const w = 1 / matchedKeys.length;
+      matchedKeys.forEach(k => weights[k] = w);
+      portSource = portMode === 'builder' ? 'equal (no builder portfolio set)' : 'equal';
+    } else if (portMode === 'mcap') {
+      let tot = 0;
+      matched.forEach(m => { const k = getKey(m.r0, matchKey); if (k) tot += Math.max(0, m.r0.mcap || 0); });
+      matched.forEach(m => { const k = getKey(m.r0, matchKey); if (k) weights[k] = (m.r0.mcap || 0) / (tot || 1); });
+      portSource = 'mcap';
+    } else if (portMode === 'index') {
+      let tot = 0;
+      matched.forEach(m => { const k = getKey(m.r0, matchKey); if (k) tot += Math.max(0, m.r0.indexWeight || 0); });
+      matched.forEach(m => { const k = getKey(m.r0, matchKey); if (k) weights[k] = (m.r0.indexWeight || 0) / (tot || 1); });
+      portSource = 'index';
+    }
+  }
+
+  // Compute contributions
+  matched.forEach(m => {
+    const k = getKey(m.r0, matchKey);
+    m.weight = weights[k] || 0;
+    m.contrib = (m.ret != null && m.weight) ? m.weight * m.ret : 0;
+  });
+  // Total return
+  const totalReturn = matched.reduce((a, m) => a + (m.contrib || 0), 0);
+  // Coverage of weights
+  const wsum = matched.reduce((a, m) => a + m.weight, 0);
+
+  state.attribution = { matched, dropped, added, totalReturn, wsum, dt_years, mode, portSource };
+
+  document.getElementById('attribution-content').style.display = 'block';
+  renderAttKPIs();
+  renderAttCharts();
+  renderAttTables();
+}
+
+document.getElementById('btn-run-att').onclick = runAttribution;
+document.getElementById('btn-export-att').onclick = () => exportAttCSV();
+
+function renderAttKPIs() {
+  const a = state.attribution;
+  if (!a) return;
+  const meanRet = a.matched.filter(m => m.ret != null).reduce((s,m,_,arr)=>s+m.ret/arr.length, 0);
+  const cards = [
+    { label: 'Portfolio Return', value: fmtPct(a.totalReturn*100, 3), cls: a.totalReturn >= 0 ? 'pos' : 'neg' },
+    { label: 'Mean Bond Return', value: fmtPct(meanRet*100, 3), cls: meanRet >= 0 ? 'pos' : 'neg' },
+    { label: 'Matched Bonds', value: a.matched.length },
+    { label: 'Σ weight matched', value: fmtPct(a.wsum*100, 1) },
+    { label: 'Dropped (in T₀ only)', value: a.dropped.length },
+    { label: 'Added (in T₁ only)', value: a.added.length },
+    { label: 'Δt (years)', value: fmt(a.dt_years, 3) },
+    { label: 'Mode', value: a.mode === 'outright' ? 'Outright' : 'Δ-hedged' },
+    { label: 'Portfolio src', value: a.portSource || '—' },
+  ];
+  document.getElementById('kpi-attribution').innerHTML = cards.map(c =>
+    `<div class="kpi ${c.cls||''}"><div class="label">${c.label}</div><div class="value">${c.value}</div></div>`).join('');
+}
+
+function attBucket(matched, getter) {
+  const m = {};
+  matched.forEach(it => {
+    const k = getter(it.r0) || 'N/A';
+    if (!m[k]) m[k] = { contrib: 0, weight: 0, count: 0 };
+    m[k].contrib += it.contrib || 0;
+    m[k].weight += it.weight || 0;
+    m[k].count += 1;
+  });
+  return Object.entries(m).sort((a,b) => b[1].contrib - a[1].contrib);
+}
+
+function barChartContrib(canvasId, data) {
+  destroyChart(canvasId);
+  const labels = data.map(d => d[0]);
+  const contribs = data.map(d => d[1].contrib * 100); // bps as % * 100? — use percent points
+  const colors = contribs.map(v => v >= 0 ? '#3fb950' : '#f85149');
+  state.charts[canvasId] = new Chart(document.getElementById(canvasId), {
+    type: 'bar',
+    data: { labels, datasets: [{ data: contribs, backgroundColor: colors }] },
+    options: {
+      ...chartDefaults,
+      indexAxis: 'y',
+      plugins: {
+        ...chartDefaults.plugins,
+        tooltip: {
+          ...chartDefaults.plugins.tooltip,
+          callbacks: { label: (ctx) => `${ctx.label}: ${ctx.parsed.x.toFixed(2)}%   (${(data[ctx.dataIndex][1].weight*100).toFixed(1)}% wt)` }
+        }
+      },
+      scales: {
+        x: { ticks: { color: '#8b949e', font: { size: 10 }, callback: v => v.toFixed(2)+'%' }, grid: { color: '#1e252f' } },
+        y: { ticks: { color: '#8b949e', font: { size: 10 } }, grid: { color: '#1e252f' } }
+      }
+    }
+  });
+}
+
+function renderAttCharts() {
+  const m = state.attribution.matched;
+  barChartContrib('ch-att-region', attBucket(m, r=>r.region));
+  barChartContrib('ch-att-sector', attBucket(m, r=>r.sector).slice(0, 12));
+  barChartContrib('ch-att-delta', attBucket(m, r=>deltaBucket(r.delta)));
+  barChartContrib('ch-att-ccy', attBucket(m, r=>r.currency));
+}
+
+const attributionCols = [
+  { k:'isin', h:'ISIN', text:true, get: m => m.r0.isin },
+  { k:'issue', h:'Issuer', text:true, get: m => m.r0.issue },
+  { k:'region', h:'Region', text:true, get: m => m.r0.region, fmt: v => regionTag(v) },
+  { k:'sector', h:'Sector', text:true, get: m => m.r0.sector },
+  { k:'currency', h:'CCY', text:true, get: m => m.r0.currency },
+  { k:'weight', h:'Weight %', get: m => m.weight, fmt: v => fmt(v*100, 3) },
+  { k:'cb0', h:'CB Px T₀', get: m => m.r0.convPrice, fmt: v => fmt(v,2) },
+  { k:'cb1', h:'CB Px T₁', get: m => m.r1.convPrice, fmt: v => fmt(v,2) },
+  { k:'dCB', h:'Δ CB', get: m => m.dP_cb, fmt: v => fmt(v,2) },
+  { k:'eq0', h:'Eq Px T₀', get: m => m.r0.equityPrice, fmt: v => fmt(v,2) },
+  { k:'eq1', h:'Eq Px T₁', get: m => m.r1.equityPrice, fmt: v => fmt(v,2) },
+  { k:'parity0', h:'Par T₀', get: m => m.r0.parity, fmt: v => fmt(v,1) },
+  { k:'parity1', h:'Par T₁', get: m => m.r1.parity, fmt: v => fmt(v,1) },
+  { k:'dPar', h:'Δ Par', get: m => m.dParity, fmt: v => fmt(v,2) },
+  { k:'delta0', h:'Δ T₀', get: m => m.r0.delta, fmt: v => fmt(v,1) },
+  { k:'iv0', h:'IV T₀', get: m => m.r0.iv, fmt: v => fmt(v,1) },
+  { k:'iv1', h:'IV T₁', get: m => m.r1.iv, fmt: v => fmt(v,1) },
+  { k:'ret', h:'Return %', get: m => m.ret, fmt: v => v != null ? (v*100).toFixed(3)+'%' : '–', signed: true },
+  { k:'contrib', h:'Contrib %', get: m => m.contrib, fmt: v => v != null ? (v*100).toFixed(3)+'%' : '–', signed: true },
+];
+
+function renderAttTables() {
+  const a = state.attribution;
+  // Top contrib / detract
+  const sorted = a.matched.filter(m => m.contrib != null).slice().sort((x,y) => y.contrib - x.contrib);
+  const topN = 15;
+  renderMiniAttTable('tbl-top-contrib', sorted.slice(0, topN));
+  renderMiniAttTable('tbl-top-detract', sorted.slice(-topN).reverse());
+
+  // Full table (limit 500)
+  document.getElementById('att-rows-count').textContent = `(${a.matched.length} matched)`;
+  renderFullAttTable();
+}
+
+function renderMiniAttTable(id, rows) {
+  const tbl = document.getElementById(id);
+  const cols = ['issue','region','weight','ret','contrib'];
+  const heads = { issue: 'Issuer', region: 'Region', weight: 'Wt %', ret: 'Ret %', contrib: 'Contrib %' };
+  tbl.querySelector('thead').innerHTML = '<tr>' + cols.map(c => `<th class="${['issue','region'].includes(c)?'text-col':''}">${heads[c]}</th>`).join('') + '</tr>';
+  tbl.querySelector('tbody').innerHTML = rows.map(m => {
+    const ret = m.ret != null ? m.ret*100 : null;
+    const cont = m.contrib != null ? m.contrib*100 : null;
+    return `<tr>
+      <td class="text-col">${m.r0.issue || ''}</td>
+      <td class="text-col">${regionTag(m.r0.region)}</td>
+      <td>${(m.weight*100).toFixed(2)}</td>
+      <td class="${ret>=0?'pos':'neg'}">${ret!=null?ret.toFixed(2)+'%':'–'}</td>
+      <td class="${cont>=0?'pos':'neg'}">${cont!=null?cont.toFixed(3)+'%':'–'}</td>
+    </tr>`;
+  }).join('');
+}
+
+function renderFullAttTable() {
+  const tbl = document.getElementById('tbl-attribution');
+  const sc = state.sortState.attribution;
+  const thead = tbl.querySelector('thead');
+  const tbody = tbl.querySelector('tbody');
+  thead.innerHTML = '<tr>' + attributionCols.map(c => {
+    const cls = (sc.col === c.k) ? (sc.dir > 0 ? 'sorted-asc' : 'sorted-desc') : '';
+    return `<th class="${c.text?'text-col':''} ${cls}" data-col="${c.k}">${c.h}</th>`;
+  }).join('') + '</tr>';
+  thead.querySelectorAll('th').forEach(th => {
+    th.addEventListener('click', () => {
+      const col = th.dataset.col;
+      if (sc.col === col) sc.dir *= -1;
+      else { sc.col = col; sc.dir = 1; }
+      renderFullAttTable();
+    });
+  });
+  let m = state.attribution.matched.slice();
+  if (sc.col) {
+    const colDef = attributionCols.find(c => c.k === sc.col);
+    const dir = sc.dir;
+    m.sort((a,b) => {
+      const va = colDef.get(a), vb = colDef.get(b);
+      if (va == null && vb == null) return 0;
+      if (va == null) return 1;
+      if (vb == null) return -1;
+      if (typeof va === 'number' && typeof vb === 'number') return dir * (va - vb);
+      return dir * String(va).localeCompare(String(vb));
+    });
+  }
+  m = m.slice(0, 500);
+  tbody.innerHTML = m.map(it => '<tr>' + attributionCols.map(c => {
+    const v = c.get(it);
+    let disp = c.fmt ? c.fmt(v) : (v == null ? '–' : v);
+    let cls = c.text?'text-col':'';
+    if (c.signed && v != null) cls += ' ' + (v >= 0 ? 'pos' : 'neg');
+    return `<td class="${cls}">${disp}</td>`;
+  }).join('') + '</tr>').join('');
+}
+
+function exportAttCSV() {
+  if (!state.attribution) { alert('Run attribution first.'); return; }
+  const cols = ['isin','maceId','issue','region','sector','currency','weight','cb_t0','cb_t1','d_cb','eq_t0','eq_t1','parity_t0','parity_t1','d_parity','delta_t0','iv_t0','iv_t1','return_pct','contribution_pct'];
+  const rows = state.attribution.matched.map(m => ({
+    isin: m.r0.isin, maceId: m.r0.maceId, issue: m.r0.issue, region: m.r0.region, sector: m.r0.sector, currency: m.r0.currency,
+    weight: (m.weight*100).toFixed(4),
+    cb_t0: m.r0.convPrice, cb_t1: m.r1.convPrice, d_cb: m.dP_cb,
+    eq_t0: m.r0.equityPrice, eq_t1: m.r1.equityPrice,
+    parity_t0: m.r0.parity, parity_t1: m.r1.parity, d_parity: m.dParity,
+    delta_t0: m.r0.delta, iv_t0: m.r0.iv, iv_t1: m.r1.iv,
+    return_pct: m.ret != null ? (m.ret*100).toFixed(4) : '',
+    contribution_pct: m.contrib != null ? (m.contrib*100).toFixed(4) : ''
+  }));
+  const csv = [cols.join(',')].concat(rows.map(r => cols.map(c => csvCell(r[c])).join(','))).join('\n');
+  downloadFile(csv, `cb_attribution_${todayStr()}.csv`, 'text/csv');
+}
+
+/* =========================================================
+   TAB SWITCHING & SECTION COLLAPSE
+   ========================================================= */
+document.querySelectorAll('.tab-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById('tab-' + btn.dataset.tab).classList.add('active');
+  });
+});
+
+function toggleSection(headEl) {
+  headEl.parentElement.classList.toggle('collapsed');
+}
+window.toggleSection = toggleSection;
+
+</script>
+</body>
+</html>
