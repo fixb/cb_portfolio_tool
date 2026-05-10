@@ -487,6 +487,110 @@ table.data tbody td.neg { color: var(--neg); }
   gap: 14px;
 }
 @media (max-width: 900px) { .split-2 { grid-template-columns: 1fr; } }
+
+/* ===== Issuer CB module ===== */
+.callout {
+  background: rgba(76,201,240,0.08);
+  border: 1px solid var(--accent);
+  border-left: 3px solid var(--accent);
+  padding: 12px 14px;
+  border-radius: 4px;
+  font-size: 13px;
+  color: var(--text);
+  line-height: 1.55;
+}
+.callout strong { color: var(--accent); font-weight: 600; }
+.callout .hl-pos { color: var(--pos); }
+.callout .hl-neg { color: var(--neg); }
+.callout .hl-warn { color: var(--warn); }
+.callout-empty { color: var(--text-faint); font-style: italic; }
+
+.toggle.lg button { padding: 6px 14px; font-size: 12px; font-weight: 500; }
+
+.weight-slider {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.weight-slider .ws-label {
+  display: flex; justify-content: space-between;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: var(--text-faint);
+}
+.weight-slider .ws-label .ws-val {
+  font-family: var(--mono);
+  color: var(--accent);
+}
+.weight-slider input[type=range] {
+  -webkit-appearance: none;
+  width: 100%;
+  height: 4px;
+  background: var(--border);
+  border-radius: 2px;
+  outline: none;
+}
+.weight-slider input[type=range]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 14px; height: 14px;
+  border-radius: 50%;
+  background: var(--accent);
+  cursor: pointer;
+  border: 2px solid var(--bg);
+}
+.weight-slider input[type=range]::-moz-range-thumb {
+  width: 14px; height: 14px;
+  border-radius: 50%;
+  background: var(--accent);
+  cursor: pointer;
+  border: 2px solid var(--bg);
+}
+
+.size-input {
+  width: 100px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 3px 6px;
+  border-radius: 3px;
+  font-family: var(--mono);
+  font-size: 11px;
+  text-align: right;
+}
+.size-input:focus { outline: 1px solid var(--accent); border-color: var(--accent); }
+
+.impact-cell-old { color: var(--text-dim); font-family: var(--mono); }
+.impact-cell-new { color: var(--text); font-family: var(--mono); font-weight: 600; }
+.impact-cell-diff { color: var(--accent); font-family: var(--mono); }
+.impact-cell-diff.pos { color: var(--pos); }
+.impact-cell-diff.neg { color: var(--neg); }
+
+table.cmp th.cb-col, table.cmp td.cb-col {
+  text-align: right;
+  white-space: nowrap;
+}
+table.cmp tbody tr.section-row td {
+  background: var(--panel-2);
+  color: var(--text-dim);
+  text-transform: uppercase;
+  font-size: 10px;
+  letter-spacing: 0.5px;
+  padding: 4px 10px;
+}
+table.cmp .metric-name { color: var(--text-dim); font-family: var(--sans); text-align: left; }
+
+.score-pill {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: rgba(76,201,240,0.15);
+  color: var(--accent);
+  font-family: var(--mono);
+  font-weight: 600;
+  font-size: 11px;
+}
+.score-pill.top { background: rgba(63,185,80,0.18); color: var(--pos); }
 </style>
 </head>
 <body>
@@ -497,6 +601,7 @@ table.data tbody td.neg { color: var(--neg); }
     <button class="tab-btn active" data-tab="universe">Universe</button>
     <button class="tab-btn" data-tab="portfolio">Portfolio Builder</button>
     <button class="tab-btn" data-tab="attribution">P&amp;L Attribution</button>
+    <button class="tab-btn" data-tab="issuer-cb">Issuer CB</button>
     <button class="tab-btn" data-tab="help">Help</button>
   </nav>
   <div class="header-status" id="header-status">no file loaded</div>
@@ -816,6 +921,137 @@ table.data tbody td.neg { color: var(--neg); }
       <div class="section-body">
         <div class="table-wrap">
           <table class="data" id="tbl-attribution"><thead></thead><tbody></tbody></table>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ============== TAB ISSUER CB COMPARISON ============== -->
+<div class="tab-pane" id="tab-issuer-cb">
+
+  <div class="section">
+    <div class="section-head"><h2>Load FTSE UCBINDEX file</h2></div>
+    <div class="section-body">
+      <div class="dropzone" id="dz-icb">
+        <p class="title">Drop FTSE UCBINDEX file here, or click to browse</p>
+        <p>.xls or .xlsx — same format as the Universe tab. The Universe file is reused automatically when already loaded.</p>
+        <p class="muted" id="icb-file-info"></p>
+        <input type="file" id="file-icb" accept=".xls,.xlsx,.xlsm">
+      </div>
+    </div>
+  </div>
+
+  <div id="icb-content" style="display:none">
+
+    <div class="section">
+      <div class="section-head"><h2>Issuer &amp; CB selection</h2></div>
+      <div class="section-body">
+        <div class="form-grid">
+          <div class="form-row">
+            <label>Issuer (≥2 CBs only)</label>
+            <select id="icb-issuer"></select>
+            <div class="helper" id="icb-issuer-info">—</div>
+          </div>
+        </div>
+        <div style="margin-top:14px">
+          <div class="filter-title">Select CBs to compare</div>
+          <div class="checkbox-list" id="icb-cb-list" style="max-height:260px"></div>
+        </div>
+        <div class="toolbar" style="margin-top:10px">
+          <span class="ct" id="icb-sel-status">No CB selected</span>
+          <button class="btn" id="btn-icb-sel-all">Select all</button>
+          <button class="btn" id="btn-icb-sel-none">Clear</button>
+          <span class="sep"></span>
+          <button class="btn primary" id="btn-icb-export">Export Excel</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== MODULE 1: SIDE-BY-SIDE COMPARISON ===== -->
+    <div class="section">
+      <div class="section-head" onclick="toggleSection(this)"><h2>Module 1 — Side-by-side comparison</h2><span class="chev">▼</span></div>
+      <div class="section-body">
+        <div class="table-wrap">
+          <table class="data cmp" id="tbl-icb-cmp"><thead></thead><tbody></tbody></table>
+        </div>
+        <div class="charts-grid" style="margin-top:14px">
+          <div class="chart-card"><h3>Payoff at maturity vs equity move</h3><div class="canvas-wrap"><canvas id="ch-icb-payoff"></canvas></div></div>
+          <div class="chart-card"><h3>CB price profile (bond floor + optionality)</h3><div class="canvas-wrap"><canvas id="ch-icb-price"></canvas></div></div>
+          <div class="chart-card"><h3>Delta profile vs spot</h3><div class="canvas-wrap"><canvas id="ch-icb-delta"></canvas></div></div>
+          <div class="chart-card"><h3>Gamma profile vs spot</h3><div class="canvas-wrap"><canvas id="ch-icb-gamma"></canvas></div></div>
+          <div class="chart-card"><h3>Implied Vol per CB (vs peer avg)</h3><div class="canvas-wrap"><canvas id="ch-icb-iv"></canvas></div></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== MODULE 2: PORTFOLIO IMPACT ===== -->
+    <div class="section">
+      <div class="section-head" onclick="toggleSection(this)"><h2>Module 2 — Portfolio impact</h2><span class="chev">▼</span></div>
+      <div class="section-body">
+        <div class="filter-title">Existing portfolio aggregates</div>
+        <div class="form-grid">
+          <div class="form-row"><label>Portfolio NAV (USDm)</label><input type="number" class="ipf" id="ipf-nav" value="100" step="10"></div>
+          <div class="form-row"><label>Avg delta (%)</label><input type="number" class="ipf" id="ipf-delta" value="45" step="1"></div>
+          <div class="form-row"><label>Avg credit spread (bps)</label><input type="number" class="ipf" id="ipf-cs" value="150" step="10"></div>
+          <div class="form-row"><label>Avg gamma (% / pt)</label><input type="number" class="ipf" id="ipf-gamma" value="0.7" step="0.1"></div>
+          <div class="form-row"><label>Avg duration (mat/put)</label><input type="number" class="ipf" id="ipf-dur" value="2.5" step="0.1"></div>
+          <div class="form-row"><label>Avg implied vol (%)</label><input type="number" class="ipf" id="ipf-iv" value="35" step="1"></div>
+          <div class="form-row"><label>Avg vega (per vol pt)</label><input type="number" class="ipf" id="ipf-vega" value="0.40" step="0.05"></div>
+          <div class="form-row"><label>Avg theta (per day, pts)</label><input type="number" class="ipf" id="ipf-theta" value="-0.012" step="0.005"></div>
+          <div class="form-row">
+            <label>Position sizing unit</label>
+            <select id="ipf-unit">
+              <option value="mv">Market value (USDm)</option>
+              <option value="nominal">Nominal (USDm)</option>
+            </select>
+            <div class="helper">Nominal sizes are converted to MV using each CB price.</div>
+          </div>
+        </div>
+
+        <div class="filter-title" style="margin-top:14px">Position sizes per selected CB</div>
+        <div class="table-wrap">
+          <table class="data" id="tbl-icb-sizes"><thead></thead><tbody></tbody></table>
+        </div>
+
+        <div class="filter-title" style="margin-top:14px">Before / After portfolio aggregates</div>
+        <div class="table-wrap">
+          <table class="data" id="tbl-icb-impact"><thead></thead><tbody></tbody></table>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== MODULE 3: SCORING ===== -->
+    <div class="section">
+      <div class="section-head" onclick="toggleSection(this)"><h2>Module 3 — Attractiveness scoring</h2><span class="chev">▼</span></div>
+      <div class="section-body">
+        <div class="toolbar">
+          <span class="ct">Mode :</span>
+          <div class="toggle lg" id="icb-mode-toggle">
+            <button data-mode="arbitrage" class="active">Arbitrage</button>
+            <button data-mode="directional">Directionnel</button>
+            <button data-mode="mix">Mix</button>
+          </div>
+          <span style="color:var(--text-faint); font-size:11px">Click a mode to reset weights to its defaults.</span>
+          <button class="btn" id="btn-icb-reset-weights" style="margin-left:auto">Reset weights</button>
+        </div>
+
+        <div class="filter-title">Factor weights (normalized to 100%)</div>
+        <div class="form-grid" id="icb-weights-grid"></div>
+
+        <div style="margin-top:14px" id="icb-recommendation">
+          <div class="callout callout-empty">Select at least one CB to see the recommendation.</div>
+        </div>
+
+        <div class="filter-title" style="margin-top:14px">Ranking</div>
+        <div class="table-wrap">
+          <table class="data" id="tbl-icb-rank"><thead></thead><tbody></tbody></table>
+        </div>
+
+        <div class="chart-card" style="margin-top:14px">
+          <h3>Score breakdown — factor contributions per CB</h3>
+          <div class="canvas-wrap" style="height:320px"><canvas id="ch-icb-scoring"></canvas></div>
         </div>
       </div>
     </div>
@@ -2397,8 +2633,906 @@ function exportAttCSV() {
 }
 
 /* =========================================================
-   TAB SWITCHING & SECTION COLLAPSE
+   ISSUER CB COMPARISON MODULE
    ========================================================= */
+const icbState = {
+  rows: null,
+  fileName: null,
+  selectedIssuer: '',
+  selectedISINs: new Set(),
+  sizes: {},                 // isin -> size (in chosen unit)
+  mode: 'arbitrage',
+  weights: null,
+  charts: {},
+  yearsSinceIssue: 0
+};
+
+const ICB_FACTORS = [
+  { key: 'cheapnessTheo',   label: 'Cheapness vs theo (Edge)' },
+  { key: 'cheapnessIvPeer', label: 'IV cheap vs issuer peers' },
+  { key: 'ivOverRv',        label: 'IV / Input Vol (low = cheap)' },
+  { key: 'convexity',       label: 'Absolute convexity (γ / Prem)' },
+  { key: 'convexityImpact', label: 'γ added per duration year added' },
+  { key: 'durationFit',     label: 'Duration positioning vs target' },
+  { key: 'yieldAdv',        label: 'Yield advantage vs peers' },
+  { key: 'creditCushion',   label: 'Credit cushion (BondFloor / Px)' }
+];
+
+const ICB_MODE_WEIGHTS = {
+  arbitrage:   { cheapnessTheo: 25, cheapnessIvPeer: 20, ivOverRv: 15, convexity: 15, convexityImpact: 10, durationFit: 0,  yieldAdv: 5,  creditCushion: 10 },
+  directional: { cheapnessTheo: 10, cheapnessIvPeer: 5,  ivOverRv: 5,  convexity: 15, convexityImpact: 15, durationFit: 15, yieldAdv: 15, creditCushion: 20 },
+  mix:         { cheapnessTheo: 15, cheapnessIvPeer: 12, ivOverRv: 8,  convexity: 15, convexityImpact: 12, durationFit: 10, yieldAdv: 13, creditCushion: 15 }
+};
+
+icbState.weights = { ...ICB_MODE_WEIGHTS.arbitrage };
+
+/* ----- Loader ----- */
+async function loadIcbFile(file) {
+  const buf = await readFileAsArrayBuffer(file);
+  const parsed = parseSheet(buf, file.name);
+  setIcbRows(parsed.rows, file.name);
+}
+function setIcbRows(rows, fileName) {
+  icbState.rows = rows;
+  icbState.fileName = fileName;
+  document.getElementById('icb-file-info').textContent = `Loaded: ${fileName} — ${rows.length} bonds.`;
+  document.getElementById('icb-content').style.display = 'block';
+  populateIssuerDropdown();
+}
+
+(function setupIcbDropzone() {
+  const dz = document.getElementById('dz-icb');
+  const inp = document.getElementById('file-icb');
+  dz.addEventListener('click', () => inp.click());
+  dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('dragover'); });
+  dz.addEventListener('dragleave', () => dz.classList.remove('dragover'));
+  dz.addEventListener('drop', async e => {
+    e.preventDefault(); dz.classList.remove('dragover');
+    if (e.dataTransfer.files[0]) await loadIcbFile(e.dataTransfer.files[0]);
+  });
+  inp.addEventListener('change', async e => {
+    if (e.target.files[0]) await loadIcbFile(e.target.files[0]);
+  });
+})();
+
+// Auto-pick up universe rows when switching to the tab and no file dropped
+document.querySelectorAll('.tab-btn[data-tab="issuer-cb"]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    if (!icbState.rows && state.universe && state.universe.length) {
+      setIcbRows(state.universe, state.lastFile || 'Universe (current)');
+    }
+  });
+});
+
+/* ----- Issuer dropdown & CB list ----- */
+function populateIssuerDropdown() {
+  const sel = document.getElementById('icb-issuer');
+  const counts = {};
+  for (const r of icbState.rows) {
+    const k = r.issue || '';
+    if (!k) continue;
+    counts[k] = (counts[k] || 0) + 1;
+  }
+  const issuers = Object.entries(counts)
+    .filter(([_, c]) => c >= 2)
+    .sort((a,b) => a[0].localeCompare(b[0]));
+
+  sel.innerHTML = '';
+  if (issuers.length === 0) {
+    sel.innerHTML = '<option value="">-- no issuer with ≥2 CBs --</option>';
+    document.getElementById('icb-issuer-info').textContent = '0 issuer with multiple CBs';
+    document.getElementById('icb-cb-list').innerHTML = '';
+    return;
+  }
+  const opt0 = document.createElement('option');
+  opt0.value = ''; opt0.textContent = '-- select an issuer --';
+  sel.appendChild(opt0);
+  for (const [issuer, ct] of issuers) {
+    const o = document.createElement('option');
+    o.value = issuer;
+    o.textContent = `${issuer} (${ct})`;
+    sel.appendChild(o);
+  }
+  document.getElementById('icb-issuer-info').textContent = `${issuers.length} issuers with ≥2 CBs · ${icbState.rows.length} bonds total`;
+  sel.onchange = onIssuerChange;
+}
+
+function onIssuerChange() {
+  const sel = document.getElementById('icb-issuer');
+  icbState.selectedIssuer = sel.value;
+  icbState.selectedISINs = new Set();
+  icbState.sizes = {};
+  populateCbList();
+  renderAllIcb();
+}
+
+function populateCbList() {
+  const list = document.getElementById('icb-cb-list');
+  list.innerHTML = '';
+  if (!icbState.selectedIssuer) return;
+  const peers = peerCBs();
+  // Sort by maturity then convPrice
+  peers.sort((a,b) => {
+    const ma = a.maturity ? a.maturity.getTime() : Infinity;
+    const mb = b.maturity ? b.maturity.getTime() : Infinity;
+    return ma - mb;
+  });
+  for (const r of peers) {
+    const lbl = document.createElement('label');
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.dataset.isin = r.isin;
+    cb.addEventListener('change', e => {
+      if (e.target.checked) icbState.selectedISINs.add(r.isin);
+      else { icbState.selectedISINs.delete(r.isin); delete icbState.sizes[r.isin]; }
+      renderAllIcb();
+    });
+    const cpn = (r.coupon != null) ? r.coupon.toFixed(3).replace(/\.?0+$/, '') + '%' : '–';
+    const mat = r.maturity ? r.maturity.toISOString().slice(0,7) : '–';
+    const ccy = r.currency || '';
+    const span = document.createElement('span');
+    span.textContent = `${cpn} ${mat} ${ccy} · ${r.isin}`;
+    span.title = r.isin;
+    const ct = document.createElement('span');
+    ct.className = 'ct';
+    ct.textContent = `Δ ${fmt(r.delta,1)} · IV ${fmt(r.iv,1)}`;
+    lbl.appendChild(cb); lbl.appendChild(span); lbl.appendChild(ct);
+    list.appendChild(lbl);
+  }
+}
+
+document.getElementById('btn-icb-sel-all').onclick = () => {
+  if (!icbState.selectedIssuer) return;
+  const peers = peerCBs();
+  icbState.selectedISINs = new Set(peers.map(r => r.isin));
+  document.querySelectorAll('#icb-cb-list input[type=checkbox]').forEach(cb => cb.checked = true);
+  renderAllIcb();
+};
+document.getElementById('btn-icb-sel-none').onclick = () => {
+  icbState.selectedISINs = new Set();
+  icbState.sizes = {};
+  document.querySelectorAll('#icb-cb-list input[type=checkbox]').forEach(cb => cb.checked = false);
+  renderAllIcb();
+};
+
+function peerCBs() {
+  if (!icbState.rows || !icbState.selectedIssuer) return [];
+  return icbState.rows.filter(r => r.issue === icbState.selectedIssuer);
+}
+function selectedCBs() {
+  if (!icbState.rows) return [];
+  return icbState.rows.filter(r => icbState.selectedISINs.has(r.isin));
+}
+
+/* ----- Master render ----- */
+function renderAllIcb() {
+  const sel = selectedCBs();
+  document.getElementById('icb-sel-status').textContent = sel.length === 0
+    ? 'No CB selected'
+    : `${sel.length} CB${sel.length>1?'s':''} selected · peer group: ${peerCBs().length}`;
+  renderIcbCmpTable(sel);
+  renderIcbCharts(sel);
+  renderIcbSizes(sel);
+  renderIcbImpact(sel);
+  renderIcbWeights();
+  renderIcbScoring(sel);
+}
+
+/* ============================================================
+   MODULE 1 — Side-by-side comparison
+   ============================================================ */
+function cbLabel(r, short=false) {
+  const cpn = (r.coupon != null) ? r.coupon.toFixed(3).replace(/\.?0+$/, '') + '%' : '–';
+  const mat = r.maturity ? r.maturity.getFullYear() : '?';
+  if (short) return `${cpn} ${mat}`;
+  return `${r.issue || ''} ${cpn} ${mat}`;
+}
+
+const ICB_CMP_SECTIONS = [
+  { name: 'Identification', rows: [
+    { label: 'ISIN',           v: r => r.isin },
+    { label: 'Coupon',         v: r => fmtPct(r.coupon, 3) },
+    { label: 'Maturity',       v: r => fmtDate(r.maturity) },
+    { label: 'Put date',       v: r => fmtDate(r.putDate) },
+    { label: 'Issue date',     v: r => fmtDate(r.issueDate) },
+    { label: 'Currency',       v: r => r.currency || '–' },
+    { label: 'S&P / Moody',    v: r => `${r.sp||'–'} / ${r.moody||'–'}` },
+    { label: 'Mandatory',      v: r => r.mandatory || '–' },
+    { label: 'Exchangeable',   v: r => r.exchangeable || '–' },
+    { label: 'Region / Country',v: r => `${r.region||'–'} / ${r.country||'–'}` },
+    { label: 'Sector',         v: r => r.sector || '–' },
+    { label: 'Market Cap (USDm)', v: r => fmt(r.mcap, 0) },
+  ]},
+  { name: 'Pricing', rows: [
+    { label: 'Convertible Price', v: r => fmt(r.convPrice, 2) },
+    { label: 'Equity Price',      v: r => fmt(r.equityPrice, 2) },
+    { label: 'Parity',            v: r => fmt(r.parity, 2) },
+    { label: 'Conversion Premium %', v: r => fmt(r.premium, 2) },
+    { label: 'Bond floor (Inv Value)', v: r => fmt(r.invValue, 2) },
+    { label: 'Prem to Inv Val %', v: r => fmt(r.premToInvVal, 2) },
+    { label: 'Theo. Price',       v: r => fmt(r.theoPrice, 2) },
+    { label: 'Edge to Theo (pts)',v: r => fmtSigned(r.edge, 2) },
+  ]},
+  { name: 'Risk / Greeks', rows: [
+    { label: 'Delta',          v: r => fmt(r.delta, 1) },
+    { label: 'Gamma',          v: r => fmt(r.gamma, 4) },
+    { label: 'Vega',           v: r => fmt(r.vega, 4) },
+    { label: 'Rho (10bp)',     v: r => fmt(r.rho, 4) },
+    { label: 'Chi',            v: r => fmt(r.chi, 4) },
+    { label: 'Implied Vol %',  v: r => fmt(r.iv, 2) },
+    { label: 'Input Vol %',    v: r => fmt(r.inputVol, 2) },
+    { label: 'IV / Input Vol', v: r => (r.iv && r.inputVol) ? (r.iv / r.inputVol).toFixed(2) : '–' },
+    { label: 'Equity Yield %', v: r => fmt(r.equityYield, 2) },
+    { label: 'Stock Borrow %', v: r => fmt(r.stockBorrow, 2) },
+  ]},
+  { name: 'Yield / Credit / Duration', rows: [
+    { label: 'Credit Spread (bps)',  v: r => fmt(r.creditSpread, 0) },
+    { label: 'Yield to Mat / Put %', v: r => fmt(r.ytmput, 2) },
+    { label: 'Duration',             v: r => fmt(r.duration, 2) },
+    { label: 'Duration to next P/M', v: r => fmt(r.durationPut, 2) },
+  ]}
+];
+
+function fmtSigned(v, dec) {
+  if (v == null || !isFinite(v)) return '–';
+  const s = v.toLocaleString('en-US', { minimumFractionDigits: dec, maximumFractionDigits: dec });
+  return v > 0 ? `+${s}` : s;
+}
+
+function renderIcbCmpTable(sel) {
+  const tbl = document.getElementById('tbl-icb-cmp');
+  const thead = tbl.querySelector('thead');
+  const tbody = tbl.querySelector('tbody');
+  if (sel.length === 0) {
+    thead.innerHTML = '';
+    tbody.innerHTML = `<tr><td class="no-data">Select CBs from the list above.</td></tr>`;
+    return;
+  }
+  // Header
+  thead.innerHTML = '<tr><th class="text-col">Metric</th>' +
+    sel.map(r => `<th class="cb-col" title="${r.isin}">${cbLabel(r,true)}<br><span style="font-weight:400;color:var(--text-faint)">${r.isin.slice(0,12)}</span></th>`).join('') +
+    '</tr>';
+  // Body
+  let html = '';
+  for (const sec of ICB_CMP_SECTIONS) {
+    html += `<tr class="section-row"><td colspan="${sel.length+1}">${sec.name}</td></tr>`;
+    for (const row of sec.rows) {
+      html += `<tr><td class="metric-name text-col">${row.label}</td>` +
+        sel.map(r => `<td class="cb-col">${row.v(r)}</td>`).join('') + '</tr>';
+    }
+  }
+  tbody.innerHTML = html;
+}
+
+/* ============================================================
+   MODULE 1 — Charts
+   ============================================================ */
+const ICB_PALETTE = ['#4cc9f0', '#f9a826', '#3fb950', '#c06cd4', '#f85149', '#56a3f5', '#e3b341', '#79c0ff', '#d2a8ff', '#ff7b72', '#a371f7', '#ffa657'];
+
+function destroyIcbChart(id) {
+  if (icbState.charts[id]) { icbState.charts[id].destroy(); delete icbState.charts[id]; }
+}
+
+const ICB_X_PCTS = (() => {
+  const arr = [];
+  for (let x = -50; x <= 50; x += 2) arr.push(x);
+  return arr;
+})();
+
+function renderIcbCharts(sel) {
+  ['icb-payoff', 'icb-price', 'icb-delta', 'icb-gamma', 'icb-iv'].forEach(destroyIcbChart);
+  if (sel.length === 0) return;
+
+  const xLabels = ICB_X_PCTS.map(p => p + '%');
+
+  // 1) Payoff at maturity: max(parity*(1+x), 100)
+  const payoffData = {
+    labels: xLabels,
+    datasets: sel.map((r, i) => {
+      const par = r.parity || 0;
+      const data = ICB_X_PCTS.map(p => {
+        const parT = par * (1 + p/100);
+        return Math.max(parT, 100);
+      });
+      return {
+        label: cbLabel(r, true),
+        data,
+        borderColor: ICB_PALETTE[i % ICB_PALETTE.length],
+        backgroundColor: 'transparent',
+        borderWidth: 1.5,
+        tension: 0.2,
+        pointRadius: 0
+      };
+    })
+  };
+  icbState.charts['icb-payoff'] = new Chart(document.getElementById('ch-icb-payoff'), {
+    type: 'line',
+    data: payoffData,
+    options: lineChartOpts('Equity move', 'Payoff (CB notional %)')
+  });
+
+  // 2) CB price profile via Taylor: CB(x) ≈ CB0 + parity0*(delta/100 * x + 0.5*gamma*(parity0*x)^2/100)
+  // (simple convex expansion; clipped above bond floor)
+  const priceData = {
+    labels: xLabels,
+    datasets: sel.map((r, i) => {
+      const par = r.parity || 0;
+      const cb0 = r.convPrice || 0;
+      const d = (r.delta || 0) / 100;
+      const g = (r.gamma || 0) / 100;
+      const bf = r.invValue || 0;
+      const data = ICB_X_PCTS.map(p => {
+        const dPar = par * (p/100);
+        const taylor = cb0 + d * dPar + 0.5 * g * dPar * dPar;
+        return Math.max(taylor, bf);
+      });
+      return {
+        label: cbLabel(r, true),
+        data,
+        borderColor: ICB_PALETTE[i % ICB_PALETTE.length],
+        backgroundColor: 'transparent',
+        borderWidth: 1.8,
+        tension: 0.25,
+        pointRadius: 0
+      };
+    })
+  };
+  icbState.charts['icb-price'] = new Chart(document.getElementById('ch-icb-price'), {
+    type: 'line',
+    data: priceData,
+    options: lineChartOpts('Equity move', 'CB price')
+  });
+
+  // 3) Delta profile: delta(x) ≈ delta0 + 100*gamma*x  (clamped)
+  const deltaData = {
+    labels: xLabels,
+    datasets: sel.map((r, i) => {
+      const d0 = r.delta || 0;
+      const g  = r.gamma || 0;  // per parity-pt move; but parity ≈ scales with x
+      const par = r.parity || 0;
+      const data = ICB_X_PCTS.map(p => {
+        const dPar = par * (p/100);
+        const dx = d0 + g * dPar;
+        return Math.min(100, Math.max(0, dx));
+      });
+      return {
+        label: cbLabel(r, true),
+        data,
+        borderColor: ICB_PALETTE[i % ICB_PALETTE.length],
+        backgroundColor: 'transparent',
+        borderWidth: 1.5,
+        tension: 0.25,
+        pointRadius: 0
+      };
+    })
+  };
+  icbState.charts['icb-delta'] = new Chart(document.getElementById('ch-icb-delta'), {
+    type: 'line',
+    data: deltaData,
+    options: lineChartOpts('Equity move', 'Delta (%)')
+  });
+
+  // 4) Gamma profile: bell curve centered at current spot with width ~ 25% spot, peak = current gamma
+  const gammaData = {
+    labels: xLabels,
+    datasets: sel.map((r, i) => {
+      const g0 = r.gamma || 0;
+      const sigma = 0.25;
+      const data = ICB_X_PCTS.map(p => {
+        const x = p/100;
+        return g0 * Math.exp(-(x*x) / (2*sigma*sigma));
+      });
+      return {
+        label: cbLabel(r, true),
+        data,
+        borderColor: ICB_PALETTE[i % ICB_PALETTE.length],
+        backgroundColor: 'transparent',
+        borderWidth: 1.5,
+        tension: 0.3,
+        pointRadius: 0
+      };
+    })
+  };
+  icbState.charts['icb-gamma'] = new Chart(document.getElementById('ch-icb-gamma'), {
+    type: 'line',
+    data: gammaData,
+    options: lineChartOpts('Equity move', 'Gamma (heuristic)')
+  });
+
+  // 5) IV per CB — bar chart, with horizontal line at peer average
+  const peers = peerCBs();
+  const peerIvAvg = mean(peers.map(r => r.iv));
+  destroyIcbChart('icb-iv');
+  icbState.charts['icb-iv'] = new Chart(document.getElementById('ch-icb-iv'), {
+    type: 'bar',
+    data: {
+      labels: sel.map(r => cbLabel(r, true)),
+      datasets: [{
+        label: 'IV',
+        data: sel.map(r => r.iv != null ? r.iv : 0),
+        backgroundColor: sel.map((_,i) => ICB_PALETTE[i % ICB_PALETTE.length])
+      },
+      {
+        label: 'Peer avg IV',
+        type: 'line',
+        data: sel.map(_ => peerIvAvg),
+        borderColor: '#f85149',
+        borderDash: [4,4],
+        borderWidth: 1.5,
+        pointRadius: 0,
+        fill: false
+      }]
+    },
+    options: {
+      ...chartDefaults,
+      plugins: {
+        ...chartDefaults.plugins,
+        legend: { display: true, labels: { color: '#e6edf3', font: { size: 10 }, boxWidth: 10 } },
+        tooltip: chartDefaults.plugins.tooltip
+      },
+      scales: {
+        x: { ticks: { color: '#8b949e', font: { size: 9 }, maxRotation: 45, minRotation: 30 }, grid: { color: '#1e252f' } },
+        y: { ticks: { color: '#8b949e', font: { size: 10 }, callback: v => v.toFixed(0)+'%' }, grid: { color: '#1e252f' } }
+      }
+    }
+  });
+}
+
+function lineChartOpts(xLabel, yLabel) {
+  return {
+    ...chartDefaults,
+    plugins: {
+      ...chartDefaults.plugins,
+      legend: { display: true, labels: { color: '#e6edf3', font: { size: 10 }, boxWidth: 10 } },
+      tooltip: chartDefaults.plugins.tooltip
+    },
+    scales: {
+      x: { title: { display: true, text: xLabel, color: '#6e7681', font: { size: 10 } }, ticks: { color: '#8b949e', font: { size: 9 }, maxTicksLimit: 12 }, grid: { color: '#1e252f' } },
+      y: { title: { display: true, text: yLabel, color: '#6e7681', font: { size: 10 } }, ticks: { color: '#8b949e', font: { size: 10 } }, grid: { color: '#1e252f' } }
+    }
+  };
+}
+
+function mean(arr) {
+  const xs = arr.filter(v => v != null && isFinite(v));
+  if (xs.length === 0) return null;
+  return xs.reduce((a,b) => a+b, 0) / xs.length;
+}
+
+/* ============================================================
+   MODULE 2 — Portfolio impact
+   ============================================================ */
+function getPortfolioInputs() {
+  return {
+    nav:    parseFloat(document.getElementById('ipf-nav').value)    || 0,
+    delta:  parseFloat(document.getElementById('ipf-delta').value)  || 0,
+    cs:     parseFloat(document.getElementById('ipf-cs').value)     || 0,
+    gamma:  parseFloat(document.getElementById('ipf-gamma').value)  || 0,
+    dur:    parseFloat(document.getElementById('ipf-dur').value)    || 0,
+    iv:     parseFloat(document.getElementById('ipf-iv').value)     || 0,
+    vega:   parseFloat(document.getElementById('ipf-vega').value)   || 0,
+    theta:  parseFloat(document.getElementById('ipf-theta').value)  || 0,
+    unit:   document.getElementById('ipf-unit').value
+  };
+}
+
+function renderIcbSizes(sel) {
+  const tbl = document.getElementById('tbl-icb-sizes');
+  const thead = tbl.querySelector('thead');
+  const tbody = tbl.querySelector('tbody');
+  if (sel.length === 0) {
+    thead.innerHTML = '';
+    tbody.innerHTML = `<tr><td class="no-data">Select CBs to size up positions.</td></tr>`;
+    return;
+  }
+  const port = getPortfolioInputs();
+  const unit = port.unit === 'mv' ? 'MV (USDm)' : 'Nominal (USDm)';
+  thead.innerHTML = `<tr>
+    <th class="text-col">CB</th>
+    <th class="text-col">ISIN</th>
+    <th>CB Px</th>
+    <th>${unit}</th>
+    <th>MV (USDm)</th>
+    <th>% NAV</th>
+  </tr>`;
+  tbody.innerHTML = sel.map(r => {
+    const sz = icbState.sizes[r.isin] || 0;
+    const mv = port.unit === 'mv' ? sz : (sz * (r.convPrice || 0) / 100);
+    const pctNav = port.nav > 0 ? (mv / port.nav * 100) : 0;
+    return `<tr>
+      <td class="text-col">${cbLabel(r, true)}</td>
+      <td class="text-col">${r.isin}</td>
+      <td>${fmt(r.convPrice, 2)}</td>
+      <td><input type="number" class="size-input" data-isin="${r.isin}" value="${sz}" step="0.5" min="0"></td>
+      <td>${fmt(mv, 2)}</td>
+      <td>${fmt(pctNav, 2)}</td>
+    </tr>`;
+  }).join('');
+  tbody.querySelectorAll('input.size-input').forEach(inp => {
+    inp.addEventListener('input', e => {
+      const isin = e.target.dataset.isin;
+      const v = parseFloat(e.target.value);
+      icbState.sizes[isin] = isFinite(v) ? v : 0;
+      renderIcbImpact(selectedCBs());
+    });
+  });
+}
+
+document.querySelectorAll('input.ipf, #ipf-unit').forEach(el => {
+  el.addEventListener('input', () => {
+    renderIcbSizes(selectedCBs());
+    renderIcbImpact(selectedCBs());
+    renderIcbScoring(selectedCBs());
+  });
+});
+
+function computeIcbAdds(sel, port) {
+  let mvAdd = 0, num = { delta: 0, cs: 0, gamma: 0, dur: 0, iv: 0, vega: 0, theta: 0 };
+  for (const r of sel) {
+    const sz = icbState.sizes[r.isin] || 0;
+    if (sz <= 0) continue;
+    const mv = port.unit === 'mv' ? sz : sz * (r.convPrice || 0) / 100;
+    mvAdd += mv;
+    num.delta += mv * (r.delta != null ? r.delta : 0);
+    num.cs    += mv * (r.creditSpread != null ? r.creditSpread : 0);
+    num.gamma += mv * (r.gamma != null ? r.gamma : 0);
+    num.dur   += mv * (r.durationPut != null ? r.durationPut : (r.duration || 0));
+    num.iv    += mv * (r.iv != null ? r.iv : 0);
+    num.vega  += mv * (r.vega != null ? r.vega : 0);
+    const thetaEst = -((r.vega || 0) * (r.iv || 0)) / 365 / 100;
+    num.theta += mv * thetaEst;
+  }
+  return { mvAdd, num };
+}
+
+function renderIcbImpact(sel) {
+  const tbl = document.getElementById('tbl-icb-impact');
+  const thead = tbl.querySelector('thead');
+  const tbody = tbl.querySelector('tbody');
+  const port = getPortfolioInputs();
+  thead.innerHTML = `<tr>
+    <th class="text-col">Aggregate</th>
+    <th>Before</th>
+    <th>Δ</th>
+    <th>After</th>
+  </tr>`;
+  if (sel.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="4" class="no-data">Select CBs and enter sizes.</td></tr>`;
+    return;
+  }
+  const { mvAdd, num } = computeIcbAdds(sel, port);
+  const oldMv = port.nav;
+  const newMv = oldMv + mvAdd;
+  const blend = (oldVal, sumNum) => newMv <= 0 ? null : (oldVal * oldMv + sumNum) / newMv;
+
+  const rows = [
+    { label: 'NAV (USDm)',              old: port.nav,    additive: true,   add: mvAdd, fmtFn: v => fmt(v, 2) },
+    { label: 'Avg Delta (%)',           old: port.delta,  newV: blend(port.delta, num.delta), fmtFn: v => fmt(v, 2) },
+    { label: 'Avg Credit Spread (bps)', old: port.cs,     newV: blend(port.cs,    num.cs),    fmtFn: v => fmt(v, 0) },
+    { label: 'Avg Gamma (%/pt)',        old: port.gamma,  newV: blend(port.gamma, num.gamma), fmtFn: v => fmt(v, 4) },
+    { label: 'Avg Duration',            old: port.dur,    newV: blend(port.dur,   num.dur),   fmtFn: v => fmt(v, 2) },
+    { label: 'Avg Implied Vol (%)',     old: port.iv,     newV: blend(port.iv,    num.iv),    fmtFn: v => fmt(v, 2) },
+    { label: 'Avg Vega',                old: port.vega,   newV: blend(port.vega,  num.vega),  fmtFn: v => fmt(v, 4) },
+    { label: 'Avg Theta (per day)',     old: port.theta,  newV: blend(port.theta, num.theta), fmtFn: v => fmt(v, 4) }
+  ];
+  tbody.innerHTML = rows.map(r => {
+    const oldV = r.old;
+    const newV = r.additive ? (oldV + r.add) : r.newV;
+    const diff = (newV != null && oldV != null) ? newV - oldV : null;
+    const diffCls = (diff == null || diff === 0) ? '' : (diff > 0 ? 'pos' : 'neg');
+    const diffSign = diff != null ? (diff > 0 ? '+' : '') : '';
+    return `<tr>
+      <td class="text-col">${r.label}</td>
+      <td class="impact-cell-old">${r.fmtFn(oldV)}</td>
+      <td class="impact-cell-diff ${diffCls}">${diff != null ? diffSign + r.fmtFn(diff) : '–'}</td>
+      <td class="impact-cell-new">${newV != null ? r.fmtFn(newV) : '–'}</td>
+    </tr>`;
+  }).join('');
+}
+
+/* ============================================================
+   MODULE 3 — Scoring
+   ============================================================ */
+document.getElementById('icb-mode-toggle').addEventListener('click', e => {
+  const btn = e.target.closest('button[data-mode]');
+  if (!btn) return;
+  document.querySelectorAll('#icb-mode-toggle button').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  icbState.mode = btn.dataset.mode;
+  icbState.weights = { ...ICB_MODE_WEIGHTS[icbState.mode] };
+  renderIcbWeights();
+  renderIcbScoring(selectedCBs());
+});
+document.getElementById('btn-icb-reset-weights').onclick = () => {
+  icbState.weights = { ...ICB_MODE_WEIGHTS[icbState.mode] };
+  renderIcbWeights();
+  renderIcbScoring(selectedCBs());
+};
+
+function renderIcbWeights() {
+  const grid = document.getElementById('icb-weights-grid');
+  grid.innerHTML = ICB_FACTORS.map(f => {
+    const v = icbState.weights[f.key] || 0;
+    return `
+      <div class="weight-slider">
+        <div class="ws-label"><span>${f.label}</span><span class="ws-val" id="wv-${f.key}">${v.toFixed(0)}</span></div>
+        <input type="range" min="0" max="50" step="1" value="${v}" data-fk="${f.key}">
+      </div>`;
+  }).join('');
+  grid.querySelectorAll('input[type=range]').forEach(inp => {
+    inp.addEventListener('input', e => {
+      const k = e.target.dataset.fk;
+      const v = parseFloat(e.target.value) || 0;
+      icbState.weights[k] = v;
+      document.getElementById('wv-' + k).textContent = v.toFixed(0);
+      renderIcbScoring(selectedCBs());
+    });
+  });
+}
+
+function scoreScale(val, lo, hi, invert=false) {
+  if (val == null || !isFinite(val)) return 0;
+  let t = (val - lo) / (hi - lo);
+  if (invert) t = 1 - t;
+  return Math.max(0, Math.min(10, t * 10));
+}
+
+function computeIcbScores(sel, peers, port) {
+  if (sel.length === 0) return [];
+  const peerIv = mean(peers.map(r => r.iv));
+  const peerYtm = mean(peers.map(r => r.ytmput));
+  const totW = ICB_FACTORS.reduce((a, f) => a + (icbState.weights[f.key] || 0), 0) || 1;
+
+  return sel.map(r => {
+    const durBond = (r.durationPut != null) ? r.durationPut : (r.duration != null ? r.duration : null);
+    const factors = {
+      cheapnessTheo:   r.edge,
+      cheapnessIvPeer: (peerIv != null && r.iv != null) ? (peerIv - r.iv) : null,
+      ivOverRv:        (r.iv != null && r.inputVol && r.inputVol > 0) ? (r.iv / r.inputVol) : null,
+      convexity:       (r.gamma != null && r.premium != null && Math.abs(r.premium) > 0.5) ? (r.gamma / Math.max(r.premium, 1)) : null,
+      convexityImpact: (r.gamma != null && durBond != null) ? ((r.gamma - port.gamma) / Math.max(durBond - port.dur, 0.5)) : null,
+      durationFit:     (durBond != null) ? -Math.abs(durBond - port.dur) : null,
+      yieldAdv:        (r.ytmput != null && peerYtm != null) ? (r.ytmput - peerYtm) : null,
+      creditCushion:   (r.invValue && r.convPrice && r.convPrice > 0) ? (r.invValue / r.convPrice) : null
+    };
+    const normalized = {
+      cheapnessTheo:   scoreScale(factors.cheapnessTheo, -3, 5),
+      cheapnessIvPeer: scoreScale(factors.cheapnessIvPeer, -5, 5),
+      ivOverRv:        scoreScale(factors.ivOverRv, 0.6, 1.5, true),
+      convexity:       scoreScale(factors.convexity, 0, 0.05),
+      convexityImpact: scoreScale(factors.convexityImpact, -0.5, 1.0),
+      durationFit:     scoreScale(factors.durationFit, -3, 0),
+      yieldAdv:        scoreScale(factors.yieldAdv, -2, 2),
+      creditCushion:   scoreScale(factors.creditCushion, 0.5, 1.0)
+    };
+    const contributions = {};
+    let score = 0;
+    for (const f of ICB_FACTORS) {
+      const w = (icbState.weights[f.key] || 0) / totW;
+      const c = w * normalized[f.key];
+      contributions[f.key] = c;
+      score += c;
+    }
+    return { r, factors, normalized, contributions, score, peerIv, peerYtm };
+  }).sort((a,b) => b.score - a.score);
+}
+
+function renderIcbScoring(sel) {
+  const peers = peerCBs();
+  const port = getPortfolioInputs();
+  const scored = computeIcbScores(sel, peers, port);
+
+  const rk = document.getElementById('tbl-icb-rank');
+  if (scored.length === 0) {
+    rk.querySelector('thead').innerHTML = '';
+    rk.querySelector('tbody').innerHTML = `<tr><td class="no-data">Select CBs to compute scoring.</td></tr>`;
+    document.getElementById('icb-recommendation').innerHTML =
+      `<div class="callout callout-empty">Select at least one CB to see the recommendation.</div>`;
+    destroyIcbChart('icb-scoring');
+    return;
+  }
+  rk.querySelector('thead').innerHTML = `<tr>
+    <th class="text-col">Rank</th>
+    <th class="text-col">CB</th>
+    <th>Edge</th>
+    <th>IV vs peer</th>
+    <th>IV/RV</th>
+    <th>γ/Prem</th>
+    <th>γ-impact</th>
+    <th>Dur fit</th>
+    <th>Yield adv</th>
+    <th>BF/Px</th>
+    <th>Score / 10</th>
+  </tr>`;
+  rk.querySelector('tbody').innerHTML = scored.map((s, i) => {
+    const r = s.r;
+    const f = s.factors;
+    return `<tr>
+      <td class="text-col">${i+1}</td>
+      <td class="text-col" title="${r.isin}">${cbLabel(r, true)}</td>
+      <td>${fmtSigned(f.cheapnessTheo, 2)}</td>
+      <td>${f.cheapnessIvPeer != null ? fmtSigned(f.cheapnessIvPeer, 1) : '–'}</td>
+      <td>${f.ivOverRv != null ? f.ivOverRv.toFixed(2) : '–'}</td>
+      <td>${f.convexity != null ? f.convexity.toFixed(4) : '–'}</td>
+      <td>${f.convexityImpact != null ? fmtSigned(f.convexityImpact, 3) : '–'}</td>
+      <td>${f.durationFit != null ? fmt(f.durationFit, 2) : '–'}</td>
+      <td>${f.yieldAdv != null ? fmtSigned(f.yieldAdv, 2) : '–'}</td>
+      <td>${f.creditCushion != null ? fmt(f.creditCushion*100, 1) + '%' : '–'}</td>
+      <td><span class="score-pill ${i===0?'top':''}">${s.score.toFixed(2)}</span></td>
+    </tr>`;
+  }).join('');
+
+  destroyIcbChart('icb-scoring');
+  const labels = scored.map(s => cbLabel(s.r, true));
+  const datasets = ICB_FACTORS.map((f, i) => ({
+    label: f.label,
+    data: scored.map(s => s.contributions[f.key]),
+    backgroundColor: ICB_PALETTE[i % ICB_PALETTE.length],
+    stack: 'score',
+    borderWidth: 0
+  }));
+  icbState.charts['icb-scoring'] = new Chart(document.getElementById('ch-icb-scoring'), {
+    type: 'bar',
+    data: { labels, datasets },
+    options: {
+      ...chartDefaults,
+      plugins: {
+        ...chartDefaults.plugins,
+        legend: { display: true, position: 'right', labels: { color: '#e6edf3', font: { size: 10 }, boxWidth: 10 } },
+        tooltip: {
+          ...chartDefaults.plugins.tooltip,
+          callbacks: { label: (ctx) => `${ctx.dataset.label}: ${ctx.parsed.y.toFixed(2)}` }
+        }
+      },
+      scales: {
+        x: { stacked: true, ticks: { color: '#8b949e', font: { size: 9 }, maxRotation: 45, minRotation: 30 }, grid: { color: '#1e252f' } },
+        y: { stacked: true, max: 10, ticks: { color: '#8b949e', font: { size: 10 } }, grid: { color: '#1e252f' }, title: { display: true, text: 'Score / 10', color: '#6e7681', font: { size: 10 } } }
+      }
+    }
+  });
+
+  document.getElementById('icb-recommendation').innerHTML = recommendationHTML(scored, port, peers);
+}
+
+function recommendationHTML(scored, port, peers) {
+  const s = scored[0];
+  const r = s.r;
+  const f = s.factors;
+  const modeLabel = { arbitrage: 'arbitrage', directional: 'directionnel', mix: 'mix' }[icbState.mode];
+
+  const cpn = (r.coupon != null) ? r.coupon.toFixed(3).replace(/\.?0+$/, '') + '%' : '';
+  const matY = r.maturity ? r.maturity.getFullYear() : '?';
+  const peerIvAvg = mean(peers.map(p => p.iv));
+  const ivDiff = (peerIvAvg != null && r.iv != null) ? (peerIvAvg - r.iv) : null;
+  const margGamma = r.gamma != null ? (r.gamma - port.gamma) : null;
+  const durBond = (r.durationPut != null) ? r.durationPut : r.duration;
+  const margDur = (durBond != null) ? (durBond - port.dur) : null;
+
+  const parts = [];
+  if (f.cheapnessTheo != null && f.cheapnessTheo > 0) {
+    parts.push(`Edge to Theo <strong>${fmtSigned(f.cheapnessTheo, 2)}</strong> pts`);
+  } else if (f.cheapnessTheo != null) {
+    parts.push(`<span class="hl-warn">Edge to Theo ${fmtSigned(f.cheapnessTheo, 2)} pts (rich)</span>`);
+  }
+  if (ivDiff != null) {
+    if (ivDiff > 0) parts.push(`IV <strong class="hl-pos">${ivDiff.toFixed(1)} vol points sous le peer group</strong>`);
+    else            parts.push(`IV <span class="hl-warn">${(-ivDiff).toFixed(1)} vol points au-dessus du peer group</span>`);
+  }
+  if (f.ivOverRv != null) {
+    parts.push(`IV/RV <strong>${f.ivOverRv.toFixed(2)}</strong>`);
+  }
+  if (margGamma != null && margDur != null) {
+    const sign = margGamma >= 0 ? '+' : '';
+    const dSign = margDur >= 0 ? '+' : '';
+    parts.push(`gamma marginal <strong>${sign}${margGamma.toFixed(3)}%</strong> pour ${dSign}${margDur.toFixed(2)} année${Math.abs(margDur)>1?'s':''} de duration`);
+  }
+  if (f.creditCushion != null) {
+    parts.push(`bond floor à <strong>${(f.creditCushion*100).toFixed(0)}%</strong> du prix`);
+  }
+
+  return `<div class="callout">
+    <strong>${r.issue} ${cpn} ${matY}</strong> est la plus attractive en mode <strong>${modeLabel}</strong> :
+    ${parts.join(', ')}.
+    <br>Score <strong>${s.score.toFixed(2)} / 10</strong>${scored.length>1 ? ` &nbsp;·&nbsp; #2 = ${cbLabel(scored[1].r, true)} (${scored[1].score.toFixed(2)})` : ''}.
+  </div>`;
+}
+
+/* ============================================================
+   EXPORT — Excel (XLSX)
+   ============================================================ */
+document.getElementById('btn-icb-export').onclick = () => {
+  const sel = selectedCBs();
+  if (sel.length === 0) { alert('Select CBs first.'); return; }
+  const peers = peerCBs();
+  const port = getPortfolioInputs();
+  const scored = computeIcbScores(sel, peers, port);
+
+  const wb = XLSX.utils.book_new();
+
+  // --- Sheet 1: Comparison
+  const cmpAOA = [];
+  cmpAOA.push(['Issuer', icbState.selectedIssuer]);
+  cmpAOA.push(['Source file', icbState.fileName || '']);
+  cmpAOA.push(['Generated', new Date().toISOString().slice(0,19).replace('T',' ')]);
+  cmpAOA.push([]);
+  cmpAOA.push(['Metric', ...sel.map(r => cbLabel(r, true))]);
+  for (const sec of ICB_CMP_SECTIONS) {
+    cmpAOA.push([sec.name]);
+    for (const row of sec.rows) {
+      cmpAOA.push([row.label, ...sel.map(r => row.v(r))]);
+    }
+  }
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(cmpAOA), 'Comparison');
+
+  // --- Sheet 2: Scoring
+  const scAOA = [];
+  scAOA.push(['Mode', icbState.mode]);
+  scAOA.push(['Weights (%):']);
+  ICB_FACTORS.forEach(f => scAOA.push(['  ' + f.label, icbState.weights[f.key] || 0]));
+  scAOA.push([]);
+  scAOA.push(['Rank', 'CB', 'ISIN',
+    'Factor: Edge', 'Factor: IV vs peer', 'Factor: IV/RV', 'Factor: γ/Prem',
+    'Factor: γ-impact', 'Factor: Dur fit', 'Factor: Yield adv', 'Factor: BF/Px',
+    'Norm: Edge', 'Norm: IV vs peer', 'Norm: IV/RV', 'Norm: γ/Prem',
+    'Norm: γ-impact', 'Norm: Dur fit', 'Norm: Yield adv', 'Norm: BF/Px',
+    'Score / 10']);
+  scored.forEach((s, i) => {
+    const f = s.factors, n = s.normalized;
+    scAOA.push([
+      i + 1, cbLabel(s.r, true), s.r.isin,
+      f.cheapnessTheo, f.cheapnessIvPeer, f.ivOverRv, f.convexity,
+      f.convexityImpact, f.durationFit, f.yieldAdv, f.creditCushion,
+      n.cheapnessTheo, n.cheapnessIvPeer, n.ivOverRv, n.convexity,
+      n.convexityImpact, n.durationFit, n.yieldAdv, n.creditCushion,
+      s.score
+    ]);
+  });
+  scAOA.push([]);
+  scAOA.push(['Recommendation:']);
+  const recoText = document.getElementById('icb-recommendation').textContent.trim().replace(/\s+/g,' ');
+  scAOA.push([recoText]);
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(scAOA), 'Scoring');
+
+  // --- Sheet 3: Portfolio impact
+  const { mvAdd, num } = computeIcbAdds(sel, port);
+  const oldMv = port.nav;
+  const newMv = oldMv + mvAdd;
+  const blend = (oldVal, sumNum) => newMv <= 0 ? null : (oldVal * oldMv + sumNum) / newMv;
+
+  const impAOA = [];
+  impAOA.push(['Portfolio aggregates — Before / After']);
+  impAOA.push([]);
+  impAOA.push(['Sizing unit', port.unit === 'mv' ? 'Market value (USDm)' : 'Nominal (USDm)']);
+  impAOA.push([]);
+  impAOA.push(['Position sizes:']);
+  impAOA.push(['CB', 'ISIN', 'CB Px', 'Size (' + (port.unit === 'mv' ? 'MV' : 'Nominal') + ', USDm)', 'MV (USDm)', '% NAV']);
+  for (const r of sel) {
+    const sz = icbState.sizes[r.isin] || 0;
+    const mv = port.unit === 'mv' ? sz : sz * (r.convPrice || 0) / 100;
+    impAOA.push([cbLabel(r,true), r.isin, r.convPrice, sz, mv, port.nav>0?(mv/port.nav*100):0]);
+  }
+  impAOA.push([]);
+  impAOA.push(['Aggregate', 'Before', 'After', 'Δ']);
+  const aggRows = [
+    ['NAV (USDm)', port.nav, port.nav + mvAdd],
+    ['Avg Delta (%)', port.delta, blend(port.delta, num.delta)],
+    ['Avg Credit Spread (bps)', port.cs, blend(port.cs, num.cs)],
+    ['Avg Gamma (%/pt)', port.gamma, blend(port.gamma, num.gamma)],
+    ['Avg Duration', port.dur, blend(port.dur, num.dur)],
+    ['Avg IV (%)', port.iv, blend(port.iv, num.iv)],
+    ['Avg Vega', port.vega, blend(port.vega, num.vega)],
+    ['Avg Theta', port.theta, blend(port.theta, num.theta)]
+  ];
+  for (const ar of aggRows) {
+    const diff = (ar[2] != null && ar[1] != null) ? ar[2] - ar[1] : null;
+    impAOA.push([ar[0], ar[1], ar[2], diff]);
+  }
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(impAOA), 'Portfolio Impact');
+
+  const safeIssuer = (icbState.selectedIssuer || 'issuer').replace(/[^A-Za-z0-9]+/g, '_').slice(0, 30);
+  XLSX.writeFile(wb, `cb_issuer_comparison_${safeIssuer}_${todayStr()}.xlsx`);
+};
+
 document.querySelectorAll('.tab-btn').forEach(btn => {
   btn.addEventListener('click', () => {
     document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
