@@ -1123,7 +1123,7 @@ const state = {
   universe: [],          // raw parsed rows, fully normalized
   filtered: [],
   filters: {
-    cat: { region: new Set(), sector: new Set(), currency: new Set(), country: new Set(), mandatory: new Set(), exchangeable: new Set() },
+    cat: { region: new Set(), sector: new Set(), currency: new Set(), country: new Set(), mandatory: new Set(), exchangeable: new Set(), regType: new Set() },
     num: {}              // { delta: [min,max], ... }
   },
   numFields: {
@@ -1144,7 +1144,8 @@ const state = {
     vega:         { label: 'Vega',            getter: r => r.vega },
     indexWeight:  { label: 'Index Weight %',  getter: r => r.indexWeight },
   },
-  catFields: ['region', 'sector', 'currency', 'country', 'mandatory', 'exchangeable'],
+  catFields: ['region', 'sector', 'currency', 'country', 'mandatory', 'exchangeable', 'regType'],
+  catLabels: { regType: '144A / RegS', mandatory: 'Mandatory', exchangeable: 'Exchangeable' },
   charts: {},
   portfolio: null,       // { holdings: [{...row, weight}], notional, settings }
   t0: null, t1: null,    // for attribution
@@ -1159,6 +1160,8 @@ const state = {
 const colAliases = {
   maceId:        ['mace id', 'mace_id', 'maceid'],
   isin:          ['isin', 'isin regulation s', 'isin 144a', 'isin registered (sec)'],
+  isin144a:      ['isin 144a', 'isin 144 a', 'isin registered (sec)', '144a isin', 'isin 144-a'],
+  isinRegS:      ['isin regs', 'isin reg s', 'isin regulation s', 'regs isin', 'reg s isin'],
   issue:         ['issue', 'issuer', 'name'],
   coupon:        ['coupon'],
   maturity:      ['maturity'],
@@ -1182,9 +1185,9 @@ const colAliases = {
   moody:         ['moody', "moody's", 'moody rating'],
   mcap:          ['market cap (usdm)', 'market cap usdm', 'mkt cap', 'market cap'],
   indexWeight:   ['index weight', 'wt'],
-  region:        ['region'],
-  sector:        ['sector'],
-  country:       ['country'],
+  region:        ['region', 'area', 'geographic region', 'issuer region', 'region (issuer)', 'geo'],
+  sector:        ['sector', 'gics sector', 'icb sector', 'industry', 'icb industry', 'gics industry'],
+  country:       ['country', 'country of risk', 'domicile', 'country (issuer)'],
   issueDate:     ['issue date'],
   mandatory:     ['mandatory (y/n)', 'mandatory'],
   exchangeable:  ['exchangeable (y/n)', 'exchangeable'],
@@ -1332,6 +1335,18 @@ function parseSheet(arrayBuffer, fileName) {
     r.vega         = toNum(row[map.vega]);
     r.chi          = toNum(row[map.chi]);
     r.ric          = toStr(row[map.ric]);
+    r.isin144a     = toStr(row[map.isin144a]);
+    r.isinRegS     = toStr(row[map.isinRegS]);
+
+    // Derived regulation type from which ISIN columns are populated
+    if (r.isin144a && r.isinRegS)      r.regType = 'Both';
+    else if (r.isin144a)               r.regType = '144A';
+    else if (r.isinRegS)               r.regType = 'RegS';
+    else                               r.regType = 'N/A';
+
+    // Fallback for the primary ISIN if the generic column was missing
+    if (r.isin === '' && r.isin144a)   r.isin = r.isin144a;
+    if (r.isin === '' && r.isinRegS)   r.isin = r.isinRegS;
 
     if (r.isin === '' && r.maceId !== '') r.isin = `MACE-${r.maceId}`;
     dataRows.push(r);
@@ -1426,7 +1441,7 @@ function initFilters() {
     block.className = 'filter-block';
     const title = document.createElement('div');
     title.className = 'filter-title';
-    title.textContent = f.charAt(0).toUpperCase() + f.slice(1);
+    title.textContent = (state.catLabels && state.catLabels[f]) || (f.charAt(0).toUpperCase() + f.slice(1));
     block.appendChild(title);
     const list = document.createElement('div');
     list.className = 'checkbox-list';
