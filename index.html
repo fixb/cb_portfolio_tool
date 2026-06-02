@@ -825,6 +825,35 @@ table.cmp .metric-name { color: var(--text-dim); font-family: var(--sans); text-
       </div>
     </div>
 
+    <!-- ===== POSITION SIZER & DELTA IMPACT ===== -->
+    <div class="section">
+      <div class="section-head"><h2>Position Sizer &amp; Δ Impact <span class="count" id="sizer-count"></span></h2></div>
+      <div class="section-body">
+        <div class="helper" style="margin-bottom:10px">
+          Size up the CBs you ticked in the Universe tab and see the marginal impact on this portfolio's
+          weighted-average Greeks. Sizes are market value in USDm, added on top of the current book.
+        </div>
+        <div class="form-grid">
+          <div class="form-row"><label>Baseline portfolio</label><div class="helper" id="sizer-base-info">—</div></div>
+          <div class="form-row"><label>Σ Added MV (USDm)</label><div class="helper" id="sizer-add-info">0.00</div></div>
+        </div>
+
+        <div class="filter-title" style="margin-top:14px">Sizes per selected CB</div>
+        <div class="table-wrap">
+          <table class="data" id="tbl-sizer"><thead></thead><tbody></tbody></table>
+        </div>
+        <div class="toolbar" style="margin-top:8px">
+          <span class="ct" id="sizer-status">—</span>
+          <button class="btn secondary" id="btn-sizer-clear">Clear sizes</button>
+        </div>
+
+        <div class="filter-title" style="margin-top:14px">Portfolio impact (Before / Δ / After)</div>
+        <div class="table-wrap">
+          <table class="data" id="tbl-sizer-impact"><thead></thead><tbody></tbody></table>
+        </div>
+      </div>
+    </div>
+
   </div>
 </div>
 
@@ -1133,6 +1162,7 @@ const state = {
   universe: [],          // raw parsed rows, fully normalized
   filtered: [],
   selected: new Set(),   // manually picked rows (object references)
+  sizerSizes: {},        // isin -> position MV (USDm) for the Position Sizer
   filters: {
     cat: { region: new Set(), sector: new Set(), currency: new Set(), country: new Set(), mandatory: new Set(), exchangeable: new Set(), regType: new Set() },
     num: {}              // { delta: [min,max], ... }
@@ -1383,6 +1413,7 @@ async function loadUniverseFile(file) {
   const parsed = parseSheet(buf, file.name);
   state.universe = parsed.rows;
   state.selected.clear();   // fresh rows: drop stale selection
+  state.sizerSizes = {};    // drop stale position sizes
   state.lastFile = file.name;
   document.getElementById('header-status').textContent = `${parsed.rows.length} bonds · ${file.name}`;
   document.getElementById('loaded-file-info').textContent = `Loaded: ${file.name} — sheet "${parsed.sheetName}", header at row ${parsed.headerIdx+1}, ${parsed.rows.length} bonds.`;
@@ -2114,9 +2145,164 @@ function buildPortfolio() {
   renderPortfolioKPIs();
   renderPortfolioCharts();
   renderPortfolioTable();
+  renderSizer();
 }
 
 document.getElementById('btn-build-portfolio').onclick = buildPortfolio;
+
+/* ============================================================
+   POSITION SIZER & Δ IMPACT (Portfolio Builder tab)
+   Marginal impact of sizing manually-selected CBs on top of
+   the built portfolio's MV-weighted aggregates.
+   ============================================================ */
+function sizerSelectedCBs() {
+  return state.universe.filter(r => state.selected.has(r));
+}
+
+function portfolioBaseline() {
+  const p = state.portfolio;
+  if (!p || !p.holdings.length) return null;
+  const h = p.holdings;
+  const wavg = getter => {
+    let num = 0, den = 0;
+    for (const r of h) { const v = getter(r); if (v != null && isFinite(v)) { num += r.weight * v; den += r.weight; } }
+    return den > 0 ? num / den : null;
+  };
+  return {
+    mv: p.notional,
+    delta: wavg(r => r.delta), gamma: wavg(r => r.gamma), vega: wavg(r => r.vega),
+    iv: wavg(r => r.iv), cs: wavg(r => r.creditSpread),
+    dur: wavg(r => r.durationPut != null ? r.durationPut : r.duration), premium: wavg(r => r.premium)
+  };
+}
+
+function computeSizerAdds(sel) {
+  let mvAdd = 0;
+  const num = { delta: 0, gamma: 0, vega: 0, iv: 0, cs: 0, dur: 0, premium: 0 };
+  for (const r of sel) {
+    const mv = state.sizerSizes[r.isin] || 0;
+    if (mv <= 0) continue;
+    mvAdd += mv;
+    num.delta   += mv * (r.delta != null ? r.delta : 0);
+    num.gamma   += mv * (r.gamma != null ? r.gamma : 0);
+    num.vega    += mv * (r.vega  != null ? r.vega  : 0);
+    num.iv      += mv * (r.iv    != null ? r.iv    : 0);
+    num.cs      += mv * (r.creditSpread != null ? r.creditSpread : 0);
+    num.dur     += mv * (r.durationPut != null ? r.durationPut : (r.duration || 0));
+    num.premium += mv * (r.premium != null ? r.premium : 0);
+  }
+  return { mvAdd, num };
+}
+
+function renderSizer() {
+  const sel = sizerSelectedCBs();
+  document.getElementById('sizer-count').textContent = `(${sel.length})`;
+  const base = portfolioBaseline();
+  document.getElementById('sizer-base-info').textContent = base
+    ? `Built portfolio · ${state.portfolio.holdings.length} positions · ${fmt(base.mv, 0)} USDm`
+    : 'No portfolio built — impact shown vs an empty book';
+  renderSizerTable(sel);
+  renderSizerImpact(sel, base);
+  updateSizerAddInfo(sel);
+}
+
+function updateSizerAddInfo(sel) {
+  const { mvAdd } = computeSizerAdds(sel);
+  document.getElementById('sizer-add-info').textContent = fmt(mvAdd, 2);
+  const nSized = sel.filter(r => (state.sizerSizes[r.isin] || 0) > 0).length;
+  document.getElementById('sizer-status').textContent = sel.length === 0
+    ? 'No CB selected'
+    : `${nSized} CB${nSized === 1 ? '' : 's'} sized · Σ ${fmt(mvAdd, 2)} USDm MV`;
+}
+
+function renderSizerTable(sel) {
+  const tbl = document.getElementById('tbl-sizer');
+  const thead = tbl.querySelector('thead');
+  const tbody = tbl.querySelector('tbody');
+  if (sel.length === 0) {
+    thead.innerHTML = '';
+    tbody.innerHTML = `<tr><td class="no-data">Tick CBs in the Universe tab to size them here.</td></tr>`;
+    return;
+  }
+  thead.innerHTML = `<tr>
+    <th class="text-col">Issuer</th><th class="text-col">ISIN</th>
+    <th>Δ</th><th>Γ</th><th>Vega</th><th>CB Px</th>
+    <th>Size (USDm MV)</th><th>Δ$ (USDm)</th>
+  </tr>`;
+  tbody.innerHTML = sel.map(r => {
+    const mv = state.sizerSizes[r.isin] || 0;
+    const dDollar = mv * (r.delta != null ? r.delta : 0) / 100;
+    return `<tr>
+      <td class="text-col">${r.issue || '–'}</td>
+      <td class="text-col">${r.isin}</td>
+      <td>${fmt(r.delta, 1)}</td>
+      <td>${fmt(r.gamma, 3)}</td>
+      <td>${fmt(r.vega, 3)}</td>
+      <td>${fmt(r.convPrice, 2)}</td>
+      <td><input type="number" class="sizer-input" data-isin="${r.isin}" value="${mv}" step="0.5" min="0"></td>
+      <td>${fmt(dDollar, 2)}</td>
+    </tr>`;
+  }).join('');
+  tbody.querySelectorAll('input.sizer-input').forEach(inp => {
+    inp.addEventListener('input', e => {
+      const isin = e.target.dataset.isin;
+      const v = parseFloat(e.target.value);
+      state.sizerSizes[isin] = isFinite(v) && v > 0 ? v : 0;
+      // Live-update this row's Δ$ cell without re-rendering (keeps input focus)
+      const r = sel.find(x => x.isin === isin);
+      const row = e.target.closest('tr');
+      if (r && row) row.lastElementChild.textContent = fmt((state.sizerSizes[isin]) * (r.delta || 0) / 100, 2);
+      renderSizerImpact(sel, portfolioBaseline());
+      updateSizerAddInfo(sel);
+    });
+  });
+}
+
+function renderSizerImpact(sel, base) {
+  const tbl = document.getElementById('tbl-sizer-impact');
+  const thead = tbl.querySelector('thead');
+  const tbody = tbl.querySelector('tbody');
+  thead.innerHTML = `<tr><th class="text-col">Aggregate</th><th>Before</th><th>Δ</th><th>After</th></tr>`;
+  const { mvAdd, num } = computeSizerAdds(sel);
+  if (mvAdd <= 0) {
+    tbody.innerHTML = `<tr><td colspan="4" class="no-data">Enter a size to see the impact.</td></tr>`;
+    return;
+  }
+  const oldMv = base ? base.mv : 0;
+  const newMv = oldMv + mvAdd;
+  const blend = (oldVal, sumNum) => {
+    if (newMv <= 0) return null;
+    return ((oldVal != null ? oldVal : 0) * oldMv + sumNum) / newMv;
+  };
+  const rows = [
+    { label: 'NAV / Notional (USDm)',     old: oldMv,                    additive: true, add: mvAdd, dec: 2 },
+    { label: 'W. Avg Delta (%)',          old: base ? base.delta : null,   newV: blend(base ? base.delta : null, num.delta),   dec: 2 },
+    { label: 'W. Avg Gamma (%/pt)',       old: base ? base.gamma : null,   newV: blend(base ? base.gamma : null, num.gamma),   dec: 4 },
+    { label: 'W. Avg Vega',               old: base ? base.vega : null,    newV: blend(base ? base.vega : null,  num.vega),    dec: 4 },
+    { label: 'W. Avg Implied Vol (%)',    old: base ? base.iv : null,      newV: blend(base ? base.iv : null,    num.iv),      dec: 2 },
+    { label: 'W. Avg Credit Spread (bps)',old: base ? base.cs : null,      newV: blend(base ? base.cs : null,    num.cs),      dec: 0 },
+    { label: 'W. Avg Duration (P/M)',     old: base ? base.dur : null,     newV: blend(base ? base.dur : null,   num.dur),     dec: 2 },
+    { label: 'W. Avg Premium (%)',        old: base ? base.premium : null, newV: blend(base ? base.premium : null, num.premium), dec: 1 },
+  ];
+  tbody.innerHTML = rows.map(r => {
+    const oldV = r.old;
+    const newV = r.additive ? ((oldV || 0) + r.add) : r.newV;
+    const diff = (newV != null && oldV != null) ? newV - oldV : (r.additive ? r.add : null);
+    const diffCls = (diff == null || Math.abs(diff) < 1e-12) ? '' : (diff > 0 ? 'pos' : 'neg');
+    const sign = (diff != null && diff > 0) ? '+' : '';
+    return `<tr>
+      <td class="text-col">${r.label}</td>
+      <td class="impact-cell-old">${oldV != null ? fmt(oldV, r.dec) : '–'}</td>
+      <td class="impact-cell-diff ${diffCls}">${diff != null ? sign + fmt(diff, r.dec) : '–'}</td>
+      <td class="impact-cell-new">${newV != null ? fmt(newV, r.dec) : '–'}</td>
+    </tr>`;
+  }).join('');
+}
+
+document.getElementById('btn-sizer-clear').onclick = () => {
+  state.sizerSizes = {};
+  renderSizer();
+};
 
 function renderPortfolioKPIs() {
   const p = state.portfolio;
@@ -3629,6 +3815,7 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
     document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
     btn.classList.add('active');
     document.getElementById('tab-' + btn.dataset.tab).classList.add('active');
+    if (btn.dataset.tab === 'portfolio') renderSizer();
   });
 });
 
