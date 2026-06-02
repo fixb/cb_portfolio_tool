@@ -834,6 +834,14 @@ table.cmp .metric-name { color: var(--text-dim); font-family: var(--sans); text-
           weighted-average Greeks. Sizes are market value in USDm, added on top of the current book.
         </div>
         <div class="form-grid">
+          <div class="form-row">
+            <label>Sizing mode</label>
+            <select id="sizer-mode">
+              <option value="add">Add to book (NAV grows)</option>
+              <option value="rebal">Rebalance (constant NAV, funded pro-rata)</option>
+            </select>
+            <div class="helper" id="sizer-mode-info">New money added on top of the current book.</div>
+          </div>
           <div class="form-row"><label>Baseline portfolio</label><div class="helper" id="sizer-base-info">—</div></div>
           <div class="form-row"><label>Σ Added MV (USDm)</label><div class="helper" id="sizer-add-info">0.00</div></div>
         </div>
@@ -2210,9 +2218,15 @@ function updateSizerAddInfo(sel) {
   const { mvAdd } = computeSizerAdds(sel);
   document.getElementById('sizer-add-info').textContent = fmt(mvAdd, 2);
   const nSized = sel.filter(r => (state.sizerSizes[r.isin] || 0) > 0).length;
-  document.getElementById('sizer-status').textContent = sel.length === 0
+  const base = portfolioBaseline();
+  const mode = document.getElementById('sizer-mode').value;
+  let msg = sel.length === 0
     ? 'No CB selected'
     : `${nSized} CB${nSized === 1 ? '' : 's'} sized · Σ ${fmt(mvAdd, 2)} USDm MV`;
+  if (mode === 'rebal' && base && mvAdd > base.mv + 1e-9) {
+    msg += ` · ⚠ exceeds NAV (${fmt(base.mv, 0)}m) — not fully fundable at constant NAV`;
+  }
+  document.getElementById('sizer-status').textContent = msg;
 }
 
 function renderSizerTable(sel) {
@@ -2268,14 +2282,25 @@ function renderSizerImpact(sel, base) {
     tbody.innerHTML = `<tr><td colspan="4" class="no-data">Enter a size to see the impact.</td></tr>`;
     return;
   }
-  const oldMv = base ? base.mv : 0;
-  const newMv = oldMv + mvAdd;
+  // Rebalance only makes sense against a real book; fall back to additive otherwise.
+  const mode = (base && document.getElementById('sizer-mode').value === 'rebal') ? 'rebal' : 'add';
+  const nav = base ? base.mv : 0;
+  let oldWeightMv, newMv, navAfter;
+  if (mode === 'rebal') {
+    oldWeightMv = Math.max(0, nav - mvAdd);   // book sold down pro-rata to fund the adds
+    newMv = oldWeightMv + mvAdd;              // = nav when fundable, else mvAdd
+    navAfter = nav;                            // NAV held constant by construction
+  } else {
+    oldWeightMv = nav;
+    newMv = nav + mvAdd;
+    navAfter = nav + mvAdd;
+  }
   const blend = (oldVal, sumNum) => {
     if (newMv <= 0) return null;
-    return ((oldVal != null ? oldVal : 0) * oldMv + sumNum) / newMv;
+    return ((oldVal != null ? oldVal : 0) * oldWeightMv + sumNum) / newMv;
   };
   const rows = [
-    { label: 'NAV / Notional (USDm)',     old: oldMv,                    additive: true, add: mvAdd, dec: 2 },
+    { label: 'NAV / Notional (USDm)',     old: nav,                        newV: navAfter,                                     dec: 2 },
     { label: 'W. Avg Delta (%)',          old: base ? base.delta : null,   newV: blend(base ? base.delta : null, num.delta),   dec: 2 },
     { label: 'W. Avg Gamma (%/pt)',       old: base ? base.gamma : null,   newV: blend(base ? base.gamma : null, num.gamma),   dec: 4 },
     { label: 'W. Avg Vega',               old: base ? base.vega : null,    newV: blend(base ? base.vega : null,  num.vega),    dec: 4 },
@@ -2286,8 +2311,8 @@ function renderSizerImpact(sel, base) {
   ];
   tbody.innerHTML = rows.map(r => {
     const oldV = r.old;
-    const newV = r.additive ? ((oldV || 0) + r.add) : r.newV;
-    const diff = (newV != null && oldV != null) ? newV - oldV : (r.additive ? r.add : null);
+    const newV = r.newV;
+    const diff = (newV != null && oldV != null) ? newV - oldV : null;
     const diffCls = (diff == null || Math.abs(diff) < 1e-12) ? '' : (diff > 0 ? 'pos' : 'neg');
     const sign = (diff != null && diff > 0) ? '+' : '';
     return `<tr>
@@ -2303,6 +2328,13 @@ document.getElementById('btn-sizer-clear').onclick = () => {
   state.sizerSizes = {};
   renderSizer();
 };
+
+document.getElementById('sizer-mode').addEventListener('change', e => {
+  document.getElementById('sizer-mode-info').textContent = e.target.value === 'rebal'
+    ? 'Adds funded by selling the existing book pro-rata; total NAV unchanged.'
+    : 'New money added on top of the current book.';
+  renderSizer();
+});
 
 function renderPortfolioKPIs() {
   const p = state.portfolio;
