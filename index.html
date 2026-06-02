@@ -353,6 +353,10 @@ table.data tbody td.text-col { text-align: left; }
 table.data tbody tr:hover { background: var(--panel-2); }
 table.data tbody td.pos { color: var(--pos); }
 table.data tbody td.neg { color: var(--neg); }
+table.data th.sel-col, table.data td.sel-col {
+  width: 30px; text-align: center; padding: 5px 6px; cursor: default;
+}
+table.data .sel-col input[type=checkbox] { accent-color: var(--accent); cursor: pointer; }
 .tag {
   display: inline-block;
   padding: 1px 6px;
@@ -657,6 +661,11 @@ table.cmp .metric-name { color: var(--text-dim); font-family: var(--sans); text-
     <div class="section">
       <div class="section-head"><h2>Filtered Universe <span class="count" id="filtered-count"></span></h2></div>
       <div class="section-body">
+        <div class="toolbar">
+          <span class="ct" id="selection-status">0 CB selected</span>
+          <button class="btn" id="btn-select-filtered">Select all filtered</button>
+          <button class="btn secondary" id="btn-clear-selection">Clear selection</button>
+        </div>
         <div class="table-wrap">
           <table class="data" id="tbl-universe">
             <thead></thead>
@@ -681,6 +690,7 @@ table.cmp .metric-name { color: var(--text-dim); font-family: var(--sans); text-
           <select id="pb-source">
             <option value="filtered">Filtered (from Universe tab)</option>
             <option value="all">Full universe</option>
+            <option value="selected">Selected only (checked in Universe)</option>
           </select>
           <div class="helper" id="pb-source-info">—</div>
         </div>
@@ -1122,6 +1132,7 @@ table.cmp .metric-name { color: var(--text-dim); font-family: var(--sans); text-
 const state = {
   universe: [],          // raw parsed rows, fully normalized
   filtered: [],
+  selected: new Set(),   // manually picked rows (object references)
   filters: {
     cat: { region: new Set(), sector: new Set(), currency: new Set(), country: new Set(), mandatory: new Set(), exchangeable: new Set(), regType: new Set() },
     num: {}              // { delta: [min,max], ... }
@@ -1371,6 +1382,7 @@ async function loadUniverseFile(file) {
   const buf = await readFileAsArrayBuffer(file);
   const parsed = parseSheet(buf, file.name);
   state.universe = parsed.rows;
+  state.selected.clear();   // fresh rows: drop stale selection
   state.lastFile = file.name;
   document.getElementById('header-status').textContent = `${parsed.rows.length} bonds · ${file.name}`;
   document.getElementById('loaded-file-info').textContent = `Loaded: ${file.name} — sheet "${parsed.sheetName}", header at row ${parsed.headerIdx+1}, ${parsed.rows.length} bonds.`;
@@ -1382,7 +1394,7 @@ async function loadUniverseFile(file) {
   document.getElementById('dz-t0').textContent = `(default) ${file.name} · ${parsed.rows.length} bonds`;
   document.getElementById('dz-t0').classList.add('loaded');
   updateAttStatus();
-  updatePbSourceInfo();
+  updateSelectionStatus();
 }
 
 document.getElementById('file-input-main').addEventListener('change', async e => {
@@ -1517,6 +1529,18 @@ function initFilters() {
     applyFilters();
   };
   document.getElementById('btn-export-filtered').onclick = () => exportFilteredCSV();
+
+  // Manual selection controls
+  document.getElementById('btn-select-filtered').onclick = () => {
+    state.filtered.forEach(r => state.selected.add(r));
+    renderUniverseTable();
+    updateSelectionStatus();
+  };
+  document.getElementById('btn-clear-selection').onclick = () => {
+    state.selected.clear();
+    renderUniverseTable();
+    updateSelectionStatus();
+  };
 }
 
 function applyFilters() {
@@ -1645,12 +1669,12 @@ function renderUniverseTable() {
   const tbl = document.getElementById('tbl-universe');
   const thead = tbl.querySelector('thead');
   const tbody = tbl.querySelector('tbody');
-  thead.innerHTML = '<tr>' + universeCols.map(c => {
+  thead.innerHTML = '<tr><th class="sel-col"><input type="checkbox" id="universe-select-all" title="Select all shown"></th>' + universeCols.map(c => {
     const sortCls = (state.sortState.universe.col === c.k)
       ? (state.sortState.universe.dir > 0 ? 'sorted-asc' : 'sorted-desc') : '';
     return `<th class="${c.text?'text-col':''} ${sortCls}" data-col="${c.k}">${c.h}</th>`;
   }).join('') + '</tr>';
-  thead.querySelectorAll('th').forEach(th => {
+  thead.querySelectorAll('th[data-col]').forEach(th => {
     th.addEventListener('click', () => {
       const col = th.dataset.col;
       if (state.sortState.universe.col === col) state.sortState.universe.dir *= -1;
@@ -1674,17 +1698,59 @@ function renderUniverseTable() {
   }
   data = data.slice(0, 500);
 
-  tbody.innerHTML = data.map(r => '<tr>' + universeCols.map(c => {
-    const v = r[c.k];
-    const disp = c.fmt ? c.fmt(v) : (v == null ? '–' : v);
-    return `<td class="${c.text?'text-col':''}">${disp}</td>`;
-  }).join('') + '</tr>').join('');
+  tbody.innerHTML = data.map((r, i) => {
+    const checked = state.selected.has(r) ? ' checked' : '';
+    const cells = universeCols.map(c => {
+      const v = r[c.k];
+      const disp = c.fmt ? c.fmt(v) : (v == null ? '–' : v);
+      return `<td class="${c.text?'text-col':''}">${disp}</td>`;
+    }).join('');
+    return `<tr><td class="sel-col"><input type="checkbox" class="row-select" data-idx="${i}"${checked}></td>${cells}</tr>`;
+  }).join('');
 
+  const colspan = universeCols.length + 1;
   if (data.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="${universeCols.length}" class="no-data">No bonds match current filters.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="${colspan}" class="no-data">No bonds match current filters.</td></tr>`;
   } else if (state.filtered.length > data.length) {
-    tbody.innerHTML += `<tr><td colspan="${universeCols.length}" class="no-data">Showing first ${data.length} of ${state.filtered.length}. Sort to navigate, or export CSV for full set.</td></tr>`;
+    tbody.innerHTML += `<tr><td colspan="${colspan}" class="no-data">Showing first ${data.length} of ${state.filtered.length}. Sort to navigate, or export CSV for full set.</td></tr>`;
   }
+
+  // Row checkbox wiring (data array is captured in this closure)
+  tbody.querySelectorAll('input.row-select').forEach(cb => {
+    cb.addEventListener('change', e => {
+      const row = data[+e.target.dataset.idx];
+      if (e.target.checked) state.selected.add(row);
+      else state.selected.delete(row);
+      syncSelectAllBox(data);
+      updateSelectionStatus();
+    });
+  });
+
+  // Header "select all shown" checkbox
+  const selAll = document.getElementById('universe-select-all');
+  if (selAll) {
+    syncSelectAllBox(data);
+    selAll.addEventListener('change', e => {
+      data.forEach(r => e.target.checked ? state.selected.add(r) : state.selected.delete(r));
+      tbody.querySelectorAll('input.row-select').forEach(cb => { cb.checked = e.target.checked; });
+      updateSelectionStatus();
+    });
+  }
+}
+
+function syncSelectAllBox(data) {
+  const selAll = document.getElementById('universe-select-all');
+  if (!selAll) return;
+  const shown = data.filter(r => state.selected.has(r)).length;
+  selAll.checked = data.length > 0 && shown === data.length;
+  selAll.indeterminate = shown > 0 && shown < data.length;
+}
+
+function updateSelectionStatus() {
+  const n = state.selected.size;
+  const el = document.getElementById('selection-status');
+  if (el) el.textContent = `${n} CB${n === 1 ? '' : 's'} selected`;
+  updatePbSourceInfo();
 }
 
 /* =========================================================
@@ -1794,16 +1860,22 @@ function renderUniverseCharts() {
 /* =========================================================
    PORTFOLIO BUILDER
    ========================================================= */
+function pbSourceRows(src) {
+  if (src === 'all') return state.universe;
+  if (src === 'selected') return state.universe.filter(r => state.selected.has(r));
+  return state.filtered;
+}
+
 function updatePbSourceInfo() {
   const src = document.getElementById('pb-source').value;
-  const n = (src === 'filtered' ? state.filtered : state.universe).length;
-  document.getElementById('pb-source-info').textContent = `${n} bonds available`;
+  const n = pbSourceRows(src).length;
+  const label = src === 'selected' ? 'manually selected' : 'bonds available';
+  document.getElementById('pb-source-info').textContent = `${n} ${label}`;
 }
 document.getElementById('pb-source').addEventListener('change', updatePbSourceInfo);
 
 function getPbSource() {
-  const src = document.getElementById('pb-source').value;
-  return (src === 'filtered' ? state.filtered : state.universe).slice();
+  return pbSourceRows(document.getElementById('pb-source').value).slice();
 }
 
 function initialWeights(rows, scheme) {
@@ -2001,7 +2073,10 @@ function applyConstraints(rows, weights) {
 function buildPortfolio() {
   const rows = getPbSource();
   if (rows.length === 0) {
-    alert('No bonds in source universe.');
+    const src = document.getElementById('pb-source').value;
+    alert(src === 'selected'
+      ? 'No CBs selected. Tick some bonds in the Universe tab first.'
+      : 'No bonds in source universe.');
     return;
   }
   const scheme = document.getElementById('pb-weighting').value;
