@@ -1155,7 +1155,7 @@ table.cmp .metric-name { color: var(--text-dim); font-family: var(--sans); text-
 
     <h3>Champs lus</h3>
     <p>Le parseur reconnaît les colonnes par nom (insensible à la casse, espaces et ponctuation). Champs principaux:</p>
-    <p class="muted"><code>MACE ID</code>, <code>ISIN</code>, <code>Issue</code>, <code>Coupon</code>, <code>Maturity</code>, <code>Put date</code>, <code>Bond Currency</code>, <code>Convertible Price</code>, <code>Equity Price</code>, <code>Parity</code>, <code>Conversion Premium</code>, <code>Delta</code>, <code>Credit Spread</code>, <code>Inv Value</code>, <code>Yield to Mat/Put</code>, <code>Duration</code>, <code>Duration to Next Put/Mat.</code>, <code>S&amp;P</code>, <code>Moody</code>, <code>Market Cap (USDm)</code>, <code>Index Weight</code>, <code>Region</code>, <code>Sector</code>, <code>Country</code>, <code>Issue Date</code>, <code>Mandatory (Y/N)</code>, <code>Exchangeable (Y/N)</code>, <code>Input Vol.</code>, <code>Equity Yield</code>, <code>Stock Borrow</code>, <code>Theo. Price</code>, <code>Edge to Theo.</code>, <code>Implied Vol.</code>, <code>Gamma</code>, <code>Rho (10bp)</code>, <code>Vega</code>.</p>
+    <p class="muted"><code>MACE ID</code>, <code>ISIN</code>, <code>Issue</code>, <code>Coupon</code>, <code>Maturity</code>, <code>Put date</code>, <code>Bond Currency</code>, <code>Convertible Price</code>, <code>Equity Price</code>, <code>Parity</code>, <code>Conversion Premium</code>, <code>Delta</code>, <code>Credit Spread</code>, <code>Inv Value</code>, <code>Yield to Mat/Put</code>, <code>Duration</code>, <code>Duration to Next Put/Mat.</code>, <code>S&amp;P</code>, <code>Moody</code>, <code>Market Cap (USDm)</code>, <code>Index Weight</code>, <code>Region</code>, <code>Sector</code>, <code>Country</code>, <code>Issue Date</code>, <code>Mandatory (Y/N)</code>, <code>Exchangeable (Y/N)</code>, <code>Input Vol.</code>, <code>Equity Yield</code>, <code>Stock Borrow</code>, <code>Theo. Price</code>, <code>Edge to Theo.</code>, <code>Implied Vol.</code>, <code>Gamma</code>, <code>Rho (10bp)</code>, <code>Vega</code>, <code>Theta</code> (optionnel — sinon estimé : Θ/jour ≈ −Vega × IV / (2T) / 365, T = années jusqu'au put/maturité).</p>
 
   </div></div>
 </div>
@@ -1191,6 +1191,7 @@ const state = {
     mcap:         { label: 'Market Cap (USDm)',getter:r => r.mcap },
     gamma:        { label: 'Gamma',           getter: r => r.gamma },
     vega:         { label: 'Vega',            getter: r => r.vega },
+    theta:        { label: 'Theta (1d)',      getter: r => r.theta },
     indexWeight:  { label: 'Index Weight %',  getter: r => r.indexWeight },
   },
   catFields: ['region', 'sector', 'currency', 'country', 'mandatory', 'exchangeable', 'regType'],
@@ -1249,6 +1250,7 @@ const colAliases = {
   gamma:         ['gamma'],
   rho:           ['rho (10bp)', 'rho'],
   vega:          ['vega'],
+  theta:         ['theta (1d)', 'theta 1d', 'theta (per day)', 'theta'],
   chi:           ['chi'],
   ric:           ['ric code', 'ric'],
 };
@@ -1288,6 +1290,18 @@ function toStr(v) {
 }
 
 // Excel date serial -> Date
+// Daily option time decay (pts per 100 nominal), used when the file has no Theta column.
+// BS identity theta = -vega * sigma / (2T): with vega per vol pt and IV in %, theta/yr = -vega * IV / (2T).
+// T = years to next put (if still ahead) else maturity, floored at 1 month.
+function estimateTheta(r) {
+  if (r.vega == null || r.iv == null) return null;
+  const now = Date.now();
+  const exp = (r.putDate && r.putDate.getTime() > now) ? r.putDate : r.maturity;
+  if (!exp || !isFinite(exp)) return null;
+  const T = Math.max(1/12, (exp.getTime() - now) / (365.25 * 86400000));
+  return -(r.vega * r.iv) / (2 * T) / 365;
+}
+
 function excelDate(v) {
   if (v == null || v === '') return null;
   if (v instanceof Date) return v;
@@ -1382,6 +1396,7 @@ function parseSheet(arrayBuffer, fileName) {
     r.gamma        = toNum(row[map.gamma]);
     r.rho          = toNum(row[map.rho]);
     r.vega         = toNum(row[map.vega]);
+    r.theta        = toNum(row[map.theta]);
     r.chi          = toNum(row[map.chi]);
     r.ric          = toStr(row[map.ric]);
     r.isin144a     = toStr(row[map.isin144a]);
@@ -1398,6 +1413,8 @@ function parseSheet(arrayBuffer, fileName) {
     if (r.isin === '' && r.isinRegS)   r.isin = r.isinRegS;
 
     if (r.isin === '' && r.maceId !== '') r.isin = `MACE-${r.maceId}`;
+    r.thetaEstimated = r.theta == null;
+    if (r.thetaEstimated) r.theta = estimateTheta(r);
     dataRows.push(r);
   }
 
@@ -1696,6 +1713,7 @@ const universeCols = [
   { k:'edge',        h:'Edge',        fmt: v => fmt(v, 2) },
   { k:'gamma',       h:'Γ',           fmt: v => fmt(v, 3) },
   { k:'vega',        h:'Vega',        fmt: v => fmt(v, 3) },
+  { k:'theta',       h:'Θ (1d)',      fmt: v => fmt(v, 4) },
   { k:'creditSpread',h:'CS',          fmt: v => fmt(v, 0) },
   { k:'durationPut', h:'Dur P/M',     fmt: v => fmt(v, 2) },
   { k:'ytmput',      h:'YTM/P',       fmt: v => fmt(v, 2) },
@@ -2178,7 +2196,7 @@ function portfolioBaseline() {
   };
   return {
     mv: p.notional,
-    delta: wavg(r => r.delta), gamma: wavg(r => r.gamma), vega: wavg(r => r.vega),
+    delta: wavg(r => r.delta), gamma: wavg(r => r.gamma), vega: wavg(r => r.vega), theta: wavg(r => r.theta),
     iv: wavg(r => r.iv), cs: wavg(r => r.creditSpread),
     dur: wavg(r => r.durationPut != null ? r.durationPut : r.duration), premium: wavg(r => r.premium)
   };
@@ -2186,7 +2204,7 @@ function portfolioBaseline() {
 
 function computeSizerAdds(sel) {
   let mvAdd = 0;
-  const num = { delta: 0, gamma: 0, vega: 0, iv: 0, cs: 0, dur: 0, premium: 0 };
+  const num = { delta: 0, gamma: 0, vega: 0, theta: 0, iv: 0, cs: 0, dur: 0, premium: 0 };
   for (const r of sel) {
     const mv = state.sizerSizes[r.isin] || 0;
     if (mv <= 0) continue;
@@ -2194,6 +2212,7 @@ function computeSizerAdds(sel) {
     num.delta   += mv * (r.delta != null ? r.delta : 0);
     num.gamma   += mv * (r.gamma != null ? r.gamma : 0);
     num.vega    += mv * (r.vega  != null ? r.vega  : 0);
+    num.theta   += mv * (r.theta != null ? r.theta : 0);
     num.iv      += mv * (r.iv    != null ? r.iv    : 0);
     num.cs      += mv * (r.creditSpread != null ? r.creditSpread : 0);
     num.dur     += mv * (r.durationPut != null ? r.durationPut : (r.duration || 0));
@@ -2240,7 +2259,7 @@ function renderSizerTable(sel) {
   }
   thead.innerHTML = `<tr>
     <th class="text-col">Issuer</th><th class="text-col">ISIN</th>
-    <th>Δ</th><th>Γ</th><th>Vega</th><th>CB Px</th>
+    <th>Δ</th><th>Γ</th><th>Vega</th><th>Θ (1d)</th><th>CB Px</th>
     <th>Size (USDm MV)</th><th>Δ$ (USDm)</th>
   </tr>`;
   tbody.innerHTML = sel.map(r => {
@@ -2252,6 +2271,7 @@ function renderSizerTable(sel) {
       <td>${fmt(r.delta, 1)}</td>
       <td>${fmt(r.gamma, 3)}</td>
       <td>${fmt(r.vega, 3)}</td>
+      <td>${fmt(r.theta, 4)}</td>
       <td>${fmt(r.convPrice, 2)}</td>
       <td><input type="number" class="sizer-input" data-isin="${r.isin}" value="${mv}" step="0.5" min="0"></td>
       <td>${fmt(dDollar, 2)}</td>
@@ -2304,6 +2324,7 @@ function renderSizerImpact(sel, base) {
     { label: 'W. Avg Delta (%)',          old: base ? base.delta : null,   newV: blend(base ? base.delta : null, num.delta),   dec: 2 },
     { label: 'W. Avg Gamma (%/pt)',       old: base ? base.gamma : null,   newV: blend(base ? base.gamma : null, num.gamma),   dec: 4 },
     { label: 'W. Avg Vega',               old: base ? base.vega : null,    newV: blend(base ? base.vega : null,  num.vega),    dec: 4 },
+    { label: 'W. Avg Theta (pts/day)',    old: base ? base.theta : null,   newV: blend(base ? base.theta : null, num.theta),   dec: 4 },
     { label: 'W. Avg Implied Vol (%)',    old: base ? base.iv : null,      newV: blend(base ? base.iv : null,    num.iv),      dec: 2 },
     { label: 'W. Avg Credit Spread (bps)',old: base ? base.cs : null,      newV: blend(base ? base.cs : null,    num.cs),      dec: 0 },
     { label: 'W. Avg Duration (P/M)',     old: base ? base.dur : null,     newV: blend(base ? base.dur : null,   num.dur),     dec: 2 },
@@ -2378,6 +2399,7 @@ function renderPortfolioKPIs() {
     { label: 'W. Avg Edge', value: fmt(wavg(r=>r.edge), 2) },
     { label: 'W. Avg Γ', value: fmt(wavg(r=>r.gamma), 3) },
     { label: 'W. Avg Vega', value: fmt(wavg(r=>r.vega), 3) },
+    { label: 'W. Avg Θ (1d)', value: fmt(wavg(r=>r.theta), 4) },
     { label: 'W. Avg Dur P/M', value: fmt(wavg(r=>r.durationPut), 2) },
     { label: 'W. Avg YTM/P', value: fmt(wavg(r=>r.ytmput), 2) },
     { label: 'Notional (USDm)', value: fmt(p.notional, 0) },
@@ -2449,6 +2471,7 @@ const portfolioCols = [
   { k:'edge', h:'Edge', fmt: v => fmt(v,2) },
   { k:'gamma', h:'Γ', fmt: v => fmt(v,3) },
   { k:'vega', h:'Vega', fmt: v => fmt(v,3) },
+  { k:'theta', h:'Θ (1d)', fmt: v => fmt(v,4) },
   { k:'creditSpread', h:'CS', fmt: v => fmt(v,0) },
   { k:'durationPut', h:'Dur P/M', fmt: v => fmt(v,2) },
   { k:'mcap', h:'MCap', fmt: v => fmt(v,0) },
@@ -2503,12 +2526,12 @@ function renderPortfolioTable() {
    ========================================================= */
 document.getElementById('btn-export-portfolio').onclick = () => {
   if (!state.portfolio) { alert('Build a portfolio first.'); return; }
-  const cols = ['isin','maceId','issue','region','sector','currency','weight','dollarNotional','convPrice','equityPrice','parity','premium','delta','iv','edge','gamma','vega','creditSpread','durationPut','ytmput','mcap','indexWeight','maturity'];
+  const cols = ['isin','maceId','issue','region','sector','currency','weight','dollarNotional','convPrice','equityPrice','parity','premium','delta','iv','edge','gamma','vega','theta','creditSpread','durationPut','ytmput','mcap','indexWeight','maturity'];
   const rows = state.portfolio.holdings.map(r => ({
     isin: r.isin, maceId: r.maceId, issue: r.issue, region: r.region, sector: r.sector, currency: r.currency,
     weight: (r.weight*100).toFixed(4), dollarNotional: (r.weight*state.portfolio.notional).toFixed(4),
     convPrice: r.convPrice, equityPrice: r.equityPrice, parity: r.parity, premium: r.premium,
-    delta: r.delta, iv: r.iv, edge: r.edge, gamma: r.gamma, vega: r.vega,
+    delta: r.delta, iv: r.iv, edge: r.edge, gamma: r.gamma, vega: r.vega, theta: r.theta,
     creditSpread: r.creditSpread, durationPut: r.durationPut, ytmput: r.ytmput,
     mcap: r.mcap, indexWeight: r.indexWeight, maturity: fmtDate(r.maturity)
   }));
@@ -2567,7 +2590,7 @@ document.getElementById('pb-load-input').addEventListener('change', e => {
 
 function exportFilteredCSV() {
   if (!state.filtered.length) { alert('No filtered bonds.'); return; }
-  const cols = ['maceId','isin','issue','region','sector','country','currency','convPrice','equityPrice','parity','premium','delta','iv','inputVol','edge','gamma','vega','rho','creditSpread','duration','durationPut','ytmput','coupon','maturity','putDate','mcap','indexWeight','mandatory','exchangeable'];
+  const cols = ['maceId','isin','issue','region','sector','country','currency','convPrice','equityPrice','parity','premium','delta','iv','inputVol','edge','gamma','vega','theta','rho','creditSpread','duration','durationPut','ytmput','coupon','maturity','putDate','mcap','indexWeight','mandatory','exchangeable'];
   const rows = state.filtered.map(r => {
     const o = {};
     cols.forEach(c => { o[c] = (c==='maturity' || c==='putDate') ? fmtDate(r[c]) : r[c]; });
@@ -3165,6 +3188,7 @@ const ICB_CMP_SECTIONS = [
     { label: 'Delta',          v: r => fmt(r.delta, 1) },
     { label: 'Gamma',          v: r => fmt(r.gamma, 4) },
     { label: 'Vega',           v: r => fmt(r.vega, 4) },
+    { label: 'Theta (pts/day)', v: r => r.theta == null ? '–' : fmt(r.theta, 4) + (r.thetaEstimated ? ' (est.)' : '') },
     { label: 'Rho (10bp)',     v: r => fmt(r.rho, 4) },
     { label: 'Chi',            v: r => fmt(r.chi, 4) },
     { label: 'Implied Vol %',  v: r => fmt(r.iv, 2) },
@@ -3487,8 +3511,7 @@ function computeIcbAdds(sel, port) {
     num.dur   += mv * (r.durationPut != null ? r.durationPut : (r.duration || 0));
     num.iv    += mv * (r.iv != null ? r.iv : 0);
     num.vega  += mv * (r.vega != null ? r.vega : 0);
-    const thetaEst = -((r.vega || 0) * (r.iv || 0)) / 365 / 100;
-    num.theta += mv * thetaEst;
+    num.theta += mv * (r.theta != null ? r.theta : 0);
   }
   return { mvAdd, num };
 }
