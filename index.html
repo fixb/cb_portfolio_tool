@@ -701,7 +701,10 @@ table.cmp .metric-name { color: var(--text-dim); font-family: var(--sans); text-
             <option value="mcap">Market cap (equity)</option>
             <option value="index">Index weight (rescaled)</option>
             <option value="delta">Delta-weighted</option>
-            <option value="gamma">Gamma-weighted</option>
+            <option value="gamma">Gamma-weighted (raw)</option>
+            <option value="gammaNorm">Gamma vol/duration-adjusted (Γ·σ√T)</option>
+            <option value="gammaPnl">Gamma P&amp;L @ IV (pts/day)</option>
+            <option value="gammaTheta">Gamma per theta (Γ P&amp;L / |Θ|)</option>
             <option value="edge">Edge-weighted (cheapness)</option>
           </select>
           <div class="helper">Initial weights, before tilt &amp; constraints</div>
@@ -767,7 +770,10 @@ table.cmp .metric-name { color: var(--text-dim); font-family: var(--sans); text-
           <select id="pb-tilt-metric">
             <option value="delta">Delta</option>
             <option value="iv">Implied Vol</option>
-            <option value="gamma">Gamma</option>
+            <option value="gamma">Gamma (raw)</option>
+            <option value="gammaNorm">Gamma Γ·σ√T (vol/dur adj.)</option>
+            <option value="gammaPnl">Gamma P&amp;L @ IV (pts/day)</option>
+            <option value="gammaTheta">Gamma per theta (Γ P&amp;L / |Θ|)</option>
             <option value="vega">Vega</option>
             <option value="edge">Edge to Theo</option>
             <option value="duration">Duration to Mat/Put</option>
@@ -1124,6 +1130,9 @@ table.cmp .metric-name { color: var(--text-dim); font-family: var(--sans); text-
       <li><code>Market cap</code>: w<sub>i</sub> = MC<sub>i</sub> / Σ MC</li>
       <li><code>Index weight</code>: poids FTSE renormalisé sur l'univers filtré</li>
       <li><code>Delta / Gamma / Edge weighted</code>: w<sub>i</sub> ∝ max(0, x<sub>i</sub>) (utile pour overweight bonds with positive metric)</li>
+      <li><code>Gamma Γ·σ√T</code>: Γ × Parité × IV × √T / 100 = variation de delta (%) pour un mouvement 1σ jusqu'au put/maturité (≈ 100·n(d<sub>1</sub>), ~40 ATM). Le gamma brut ∝ 1/(σ√T) sur-pondère mécaniquement les CB courtes et peu volatiles; cette mesure ne garde que la « position » sur la courbe de convexité. T = Dur. to Put/Mat (sinon date put/maturité).</li>
+      <li><code>Gamma P&amp;L @ IV</code>: ½ × Γ/100 × Parité² × IV² / 365 — P&amp;L de convexité attendu par jour (pts) si le sous-jacent réalise l'IV. Récompense les noms volatils.</li>
+      <li><code>Gamma per theta</code>: Γ P&amp;L/jour à l'Input Vol (sinon IV) ÷ |Θ|. &gt; 1 : la convexité paie son theta. Θ ≥ 0 (carry couvre la décroissance) → plafonné à 5. Si Θ est estimé (pas de colonne Theta) et Input Vol absent, le ratio vaut ≈ 1 partout (identité BS) et ne discrimine pas. Utilisé aussi comme facteur « Convexity per theta » du scoring ICB (score 0→10 entre 0.5 et 1.5).</li>
     </ul>
 
     <h3>Contraintes de diversification</h3>
@@ -1192,6 +1201,9 @@ const state = {
     gamma:        { label: 'Gamma',           getter: r => r.gamma },
     vega:         { label: 'Vega',            getter: r => r.vega },
     theta:        { label: 'Theta (1d)',      getter: r => r.theta },
+    gammaNorm:    { label: 'Γ·σ√T (vol/dur adj.)', getter: r => r.gammaNorm },
+    gammaPnl:     { label: 'Γ P&L 1d @ IV',   getter: r => r.gammaPnl },
+    gammaTheta:   { label: 'Γ P&L / |Θ|',     getter: r => r.gammaTheta },
     indexWeight:  { label: 'Index Weight %',  getter: r => r.indexWeight },
   },
   catFields: ['region', 'sector', 'currency', 'country', 'mandatory', 'exchangeable', 'regType'],
@@ -1300,6 +1312,37 @@ function estimateTheta(r) {
   if (!exp || !isFinite(exp)) return null;
   const T = Math.max(1/12, (exp.getTime() - now) / (365.25 * 86400000));
   return -(r.vega * r.iv) / (2 * T) / 365;
+}
+
+// Gamma metrics comparable across vol and maturity. Gamma convention (see ICB Taylor):
+// delta (%) change per 1 parity-pt move, so price convexity = 0.5 * gamma/100 * dParity^2.
+function yearsToExpiry(r) {
+  if (r.durationPut != null && r.durationPut > 0) return Math.max(1/12, r.durationPut);
+  const now = Date.now();
+  const exp = (r.putDate && r.putDate.getTime() > now) ? r.putDate : r.maturity;
+  if (!exp || !isFinite(exp)) return null;
+  return Math.max(1/12, (exp.getTime() - now) / (365.25 * 86400000));
+}
+
+// Expected daily gamma P&L (pts per 100 nominal) if the stock realizes `vol` (%)
+function gammaPnl1d(r, vol) {
+  if (r.gamma == null || r.parity == null || vol == null) return null;
+  return 0.5 * (r.gamma / 100) * r.parity * r.parity * (vol / 100) * (vol / 100) / 365;
+}
+
+function computeGammaMetrics(r) {
+  const T = yearsToExpiry(r);
+  // Delta change (%) for a 1-sigma move to put/maturity: ~ 100*n(d1) under BS, ~40 ATM.
+  // Strips out the mechanical 1/(sigma*sqrt(T)) that inflates raw gamma on low-vol / short bonds.
+  r.gammaNorm = (r.gamma != null && r.parity != null && r.iv != null && T != null)
+    ? r.gamma * r.parity * (r.iv / 100) * Math.sqrt(T) : null;
+  r.gammaPnl = gammaPnl1d(r, r.iv);
+  // Gamma rent coverage: gamma P&L at the model input vol (fallback IV) per unit of daily decay.
+  // > 1 = convexity pays for its theta. Positive theta (carry covers decay) capped at 5.
+  const gRef = gammaPnl1d(r, r.inputVol != null && r.inputVol > 0 ? r.inputVol : r.iv);
+  if (gRef == null || r.theta == null) r.gammaTheta = null;
+  else if (r.theta > -1e-6) r.gammaTheta = gRef > 0 ? 5 : null;
+  else r.gammaTheta = Math.min(5, gRef / -r.theta);
 }
 
 function excelDate(v) {
@@ -1415,6 +1458,7 @@ function parseSheet(arrayBuffer, fileName) {
     if (r.isin === '' && r.maceId !== '') r.isin = `MACE-${r.maceId}`;
     r.thetaEstimated = r.theta == null;
     if (r.thetaEstimated) r.theta = estimateTheta(r);
+    computeGammaMetrics(r);
     dataRows.push(r);
   }
 
@@ -1714,6 +1758,8 @@ const universeCols = [
   { k:'gamma',       h:'Γ',           fmt: v => fmt(v, 3) },
   { k:'vega',        h:'Vega',        fmt: v => fmt(v, 3) },
   { k:'theta',       h:'Θ (1d)',      fmt: v => fmt(v, 4) },
+  { k:'gammaNorm',   h:'Γ·σ√T',       fmt: v => fmt(v, 1) },
+  { k:'gammaTheta',  h:'Γ/Θ',         fmt: v => fmt(v, 2) },
   { k:'creditSpread',h:'CS',          fmt: v => fmt(v, 0) },
   { k:'durationPut', h:'Dur P/M',     fmt: v => fmt(v, 2) },
   { k:'ytmput',      h:'YTM/P',       fmt: v => fmt(v, 2) },
@@ -1955,6 +2001,15 @@ function initialWeights(rows, scheme) {
     case 'gamma':
       raw = rows.map(r => Math.max(0.01, (r.gamma != null ? r.gamma : 0)));
       break;
+    case 'gammaNorm':
+    case 'gammaPnl':
+    case 'gammaTheta': {
+      // Floor at 1% of the median so bonds with missing/zero convexity keep a token weight
+      const xs = rows.map(r => r[scheme]).filter(v => v != null && v > 0).sort((a,b)=>a-b);
+      const floor = xs.length ? 0.01 * xs[Math.floor(xs.length / 2)] : 0.01;
+      raw = rows.map(r => Math.max(floor, r[scheme] != null ? r[scheme] : 0));
+      break;
+    }
     case 'edge':
       raw = rows.map(r => Math.max(0.01, (r.edge != null ? r.edge : 0)));
       break;
@@ -1976,6 +2031,7 @@ function applyTilt(rows, weights) {
 
   const metricGetter = {
     delta: r=>r.delta, iv: r=>r.iv, gamma: r=>r.gamma, vega: r=>r.vega, edge: r=>r.edge,
+    gammaNorm: r=>r.gammaNorm, gammaPnl: r=>r.gammaPnl, gammaTheta: r=>r.gammaTheta,
     duration: r=>r.durationPut, creditSpread: r=>r.creditSpread, premium: r=>r.premium, ytmput: r=>r.ytmput
   }[metric];
 
@@ -2982,7 +3038,7 @@ const ICB_FACTORS = [
   { key: 'cheapnessTheo',   label: 'Cheapness vs theo (Edge)' },
   { key: 'cheapnessIvPeer', label: 'IV cheap vs issuer peers' },
   { key: 'ivOverRv',        label: 'IV / Input Vol (low = cheap)' },
-  { key: 'convexity',       label: 'Absolute convexity (γ / Prem)' },
+  { key: 'convexity',       label: 'Convexity per theta (Γ P&L / |Θ|)' },
   { key: 'convexityImpact', label: 'γ added per duration year added' },
   { key: 'durationFit',     label: 'Duration positioning vs target' },
   { key: 'yieldAdv',        label: 'Yield advantage vs peers' },
@@ -3620,7 +3676,7 @@ function computeIcbScores(sel, peers, port) {
       cheapnessTheo:   r.edge,
       cheapnessIvPeer: (peerIv != null && r.iv != null) ? (peerIv - r.iv) : null,
       ivOverRv:        (r.iv != null && r.inputVol && r.inputVol > 0) ? (r.iv / r.inputVol) : null,
-      convexity:       (r.gamma != null && r.premium != null && Math.abs(r.premium) > 0.5) ? (r.gamma / Math.max(r.premium, 1)) : null,
+      convexity:       r.gammaTheta,
       convexityImpact: (r.gamma != null && durBond != null) ? ((r.gamma - port.gamma) / Math.max(durBond - port.dur, 0.5)) : null,
       durationFit:     (durBond != null) ? -Math.abs(durBond - port.dur) : null,
       yieldAdv:        (r.ytmput != null && peerYtm != null) ? (r.ytmput - peerYtm) : null,
@@ -3630,7 +3686,7 @@ function computeIcbScores(sel, peers, port) {
       cheapnessTheo:   scoreScale(factors.cheapnessTheo, -3, 5),
       cheapnessIvPeer: scoreScale(factors.cheapnessIvPeer, -5, 5),
       ivOverRv:        scoreScale(factors.ivOverRv, 0.6, 1.5, true),
-      convexity:       scoreScale(factors.convexity, 0, 0.05),
+      convexity:       scoreScale(factors.convexity, 0.5, 1.5),
       convexityImpact: scoreScale(factors.convexityImpact, -0.5, 1.0),
       durationFit:     scoreScale(factors.durationFit, -3, 0),
       yieldAdv:        scoreScale(factors.yieldAdv, -2, 2),
@@ -3684,7 +3740,7 @@ function renderIcbScoring(sel) {
       <td>${fmtSigned(f.cheapnessTheo, 2)}</td>
       <td>${f.cheapnessIvPeer != null ? fmtSigned(f.cheapnessIvPeer, 1) : '–'}</td>
       <td>${f.ivOverRv != null ? f.ivOverRv.toFixed(2) : '–'}</td>
-      <td>${f.convexity != null ? f.convexity.toFixed(4) : '–'}</td>
+      <td>${f.convexity != null ? f.convexity.toFixed(2) : '–'}</td>
       <td>${f.convexityImpact != null ? fmtSigned(f.convexityImpact, 3) : '–'}</td>
       <td>${f.durationFit != null ? fmt(f.durationFit, 2) : '–'}</td>
       <td>${f.yieldAdv != null ? fmtSigned(f.yieldAdv, 2) : '–'}</td>
