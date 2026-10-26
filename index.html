@@ -564,6 +564,10 @@ table.data .sel-col input[type=checkbox] { accent-color: var(--accent); cursor: 
 }
 .size-input:focus { outline: 1px solid var(--accent); border-color: var(--accent); }
 
+.att-warn { color: var(--warn); font-size: 11px; margin-top: 6px; }
+.att-warn:empty { display: none; }
+.fx-missing { color: var(--warn); }
+
 .impact-cell-old { color: var(--text-dim); font-family: var(--mono); }
 .impact-cell-new { color: var(--text); font-family: var(--mono); font-weight: 600; }
 .impact-cell-diff { color: var(--accent); font-family: var(--mono); }
@@ -631,6 +635,31 @@ table.cmp .metric-name { color: var(--text-dim); font-family: var(--sans); text-
   <div id="universe-content" style="display:none">
 
     <div class="kpi-grid" id="kpi-universe"></div>
+
+    <div class="section">
+      <div class="section-head" onclick="toggleSection(this)"><h2>FX rates → USD <span class="count" id="fx-count"></span></h2><span class="chev">▼</span></div>
+      <div class="section-body">
+        <div class="form-grid" style="margin-bottom:10px">
+          <div class="form-row">
+            <label>File FX column convention</label>
+            <select id="fx-file-conv">
+              <option value="ccyPerUsd">CCY per 1 USD (e.g. JPY 150)</option>
+              <option value="usdPerCcy">USD per 1 CCY (e.g. EUR 1.08)</option>
+            </select>
+            <div class="helper">Used only if the file has an <code>FX Rate</code> column. Manual entries below override it.</div>
+          </div>
+          <div class="form-row">
+            <label>Status</label>
+            <div class="ct" id="fx-status">—</div>
+            <div class="helper">Missing rates are treated as 1.0 and flagged wherever USD figures are shown.</div>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table class="data" id="tbl-fx"><thead></thead><tbody></tbody></table>
+        </div>
+        <div class="helper" style="margin-top:6px">Rates are USD per 1 unit of currency. T₀ is used for all sizing (Builder, Sizer, Issuer CB). T₁ is used only by P&amp;L Attribution in USD mode (blank = same as T₀). Saved in this browser.</div>
+      </div>
+    </div>
 
     <div class="section">
       <div class="section-head" onclick="toggleSection(this)"><h2>Filters <span class="count" id="filter-count"></span></h2><span class="chev">▼</span></div>
@@ -929,7 +958,41 @@ table.cmp .metric-name { color: var(--text-dim); font-family: var(--sans); text-
             <option value="mace">MACE ID only</option>
           </select>
         </div>
+        <div class="form-row">
+          <label>T₀ date</label>
+          <input type="date" id="att-date0">
+          <div class="helper">Pre-filled from the file name (YYYYMMDD) when found</div>
+        </div>
+        <div class="form-row">
+          <label>T₁ date</label>
+          <input type="date" id="att-date1">
+          <div class="helper">Δt drives accrued coupon only</div>
+        </div>
+        <div class="form-row">
+          <label>Return currency</label>
+          <select id="att-ccy">
+            <option value="local">Local (price return)</option>
+            <option value="usd">USD (FX T₀ → T₁ from FX table)</option>
+          </select>
+        </div>
+        <div class="form-row">
+          <label>Bonds dropped between T₀ and T₁</label>
+          <select id="att-dropped">
+            <option value="exit">Use exit prices entered below</option>
+            <option value="flat">Hold at T₀ price (0% return)</option>
+            <option value="ignore">Exclude (weight not covered)</option>
+          </select>
+          <div class="helper">Calls, conversions, defaults, index exits</div>
+        </div>
+        <div class="form-row">
+          <label>Weights</label>
+          <select id="att-renorm">
+            <option value="yes">Renormalize to covered bonds</option>
+            <option value="no">Raw (uncovered weight = cash at 0%)</option>
+          </select>
+        </div>
       </div>
+      <div class="att-warn" id="att-warn"></div>
     </div>
   </div>
 
@@ -965,6 +1028,16 @@ table.cmp .metric-name { color: var(--text-dim); font-family: var(--sans); text-
           <div class="scrollable-220">
             <table class="data" id="tbl-top-detract"><thead></thead><tbody></tbody></table>
           </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="section" id="att-dropped-section" style="display:none">
+      <div class="section-head"><h2>Dropped bonds (in T₀ only) <span class="count" id="att-dropped-count"></span></h2></div>
+      <div class="section-body">
+        <div class="helper" style="margin-bottom:8px">Enter the exit price (call / conversion / recovery / last price) in local currency, % of par. Blank = not covered.</div>
+        <div class="table-wrap scrollable-220">
+          <table class="data" id="tbl-att-dropped"><thead></thead><tbody></tbody></table>
         </div>
       </div>
     </div>
@@ -1057,7 +1130,7 @@ table.cmp .metric-name { color: var(--text-dim); font-family: var(--sans); text-
             <label>Position sizing unit</label>
             <select id="ipf-unit">
               <option value="mv">Market value (USDm)</option>
-              <option value="nominal">Nominal (USDm)</option>
+              <option value="nominal">Nominal (local ccy, m) → USD via FX table</option>
             </select>
             <div class="helper">Nominal sizes are converted to MV using each CB price.</div>
           </div>
@@ -1153,12 +1226,21 @@ table.cmp .metric-name { color: var(--text-dim); font-family: var(--sans); text-
       <li><b>Delta-hedged</b>: r<sub>i</sub> = (ΔP<sub>CB</sub> − δ<sub>0</sub> × ΔParité) / P<sub>0</sub>. δ et parité sont en % CB notional; cette quantité capture gamma + theta + carry, à edge / IV constants.</li>
     </ul>
     <p>Le retour portefeuille est Σ w<sub>i,0</sub> × r<sub>i</sub>. La contribution de chaque bond/bucket est w<sub>i,0</sub> × r<sub>i</sub> (en bps de portefeuille).</p>
+    <ul>
+      <li><b>Dates T₀ / T₁</b>: pré-remplies depuis le nom de fichier (<code>YYYYMMDD</code>), éditables. Sans dates, Δt est inconnu et le coupon accrued n'est <em>pas</em> ajouté (avertissement affiché).</li>
+      <li><b>Devise</b>: <code>Local</code> = retour prix pur. <code>USD</code> = (1 + r<sub>local</sub>) × FX<sub>1</sub>/FX<sub>0</sub> − 1, avec les taux T₀/T₁ de la table FX (onglet Universe). Sans taux T₁, FX<sub>1</sub> = FX<sub>0</sub> (pas de P&amp;L de change). La colonne <code>FX %</code> isole l'effet change.</li>
+      <li><b>Bonds sortis</b> (présents en T₀, absents en T₁ : call, conversion, défaut, sortie d'indice): <code>Exit prices</code> — saisis le prix de sortie en % du pair dans la table dédiée; <code>Flat</code> — retour 0 au prix T₀; <code>Exclude</code> — non couverts. En mode Δ-hedged, la jambe de hedge d'un bond sorti vaut 0 (pas de parité T₁).</li>
+      <li><b>Poids</b>: <code>Renormalize</code> remet les poids à 100 % sur les bonds couverts (ceux qui ont un retour). <code>Raw</code> garde les poids T₀, le poids non couvert est du cash à 0 %. Le KPI « Σ weight not covered » indique la part du portefeuille dont on ignore le retour.</li>
+    </ul>
+
+    <h3>FX (table dans l'onglet Universe)</h3>
+    <p>Tout ce qui est en USD passe par la table FX : nominal local ↔ MV USD dans le Portfolio Builder, le Position Sizer et le module Issuer CB (unité « Nominal »), et le mode USD de l'attribution. Taux en USD par unité de devise, saisis à la main (sauvegardés dans le navigateur) ou lus depuis une colonne <code>FX Rate</code> du fichier (convention à choisir : CCY par USD ou USD par CCY — vérifier avec la médiane affichée, p.ex. JPY ≈ 0.0067 USD). Devise sans taux → 1.0, signalé par ⚠.</p>
 
     <h3>Limitations</h3>
     <ul>
       <li>Le delta-hedge est <em>statique</em> sur Δt: pas de re-hedge intraperiode. Pour Δt court ou move modéré, c'est OK; pour Δt long ou move large, gamma slippage non capturé.</li>
       <li>Le coupon accrued est linéaire, sans actualisation.</li>
-      <li>Les bonds ajoutés/retirés entre T₀ et T₁ apparaissent dans des buckets séparés (no-match) avec contribution = 0.</li>
+      <li>Les bonds ajoutés en T₁ (absents en T₀) ont un poids T₀ nul et n'ont donc pas de contribution.</li>
       <li>Les colonnes manquantes (rating, etc.) sont gérées comme N/A.</li>
     </ul>
 
@@ -1180,6 +1262,8 @@ const state = {
   filtered: [],
   selected: new Set(),   // manually picked rows (object references)
   sizerSizes: {},        // isin -> position MV (USDm) for the Position Sizer
+  fx: {},                // ccy -> { t0, t1 }  USD per 1 unit of ccy (manual, persisted)
+  attExitPrices: {},     // isin -> exit price (% of par) for bonds dropped between T0 and T1
   filters: {
     cat: { region: new Set(), sector: new Set(), currency: new Set(), country: new Set(), mandatory: new Set(), exchangeable: new Set(), regType: new Set() },
     num: {}              // { delta: [min,max], ... }
@@ -1264,6 +1348,7 @@ const colAliases = {
   vega:          ['vega'],
   theta:         ['theta (1d)', 'theta 1d', 'theta (per day)', 'theta'],
   chi:           ['chi'],
+  fxRate:        ['fx rate', 'fx rate to usd', 'fx', 'usd fx rate', 'exchange rate'],
   ric:           ['ric code', 'ric'],
 };
 
@@ -1344,6 +1429,123 @@ function computeGammaMetrics(r) {
   else if (r.theta > -1e-6) r.gammaTheta = gRef > 0 ? 5 : null;
   else r.gammaTheta = Math.min(5, gRef / -r.theta);
 }
+
+/* =========================================================
+   FX (all USD figures go through here)
+   ========================================================= */
+const FX_STORE_KEY = 'cbtool.fx.v1';
+function loadFxStore() {
+  try { state.fx = JSON.parse(localStorage.getItem(FX_STORE_KEY) || '{}') || {}; } catch (e) { state.fx = {}; }
+}
+function saveFxStore() {
+  try { localStorage.setItem(FX_STORE_KEY, JSON.stringify(state.fx)); } catch (e) { /* private mode */ }
+}
+loadFxStore();
+
+// File FX column -> USD per 1 CCY, according to the convention selected in the FX section
+function fileFxUsdPerCcy(r) {
+  if (r.fxRate == null || !(r.fxRate > 0)) return null;
+  const conv = document.getElementById('fx-file-conv').value;
+  return conv === 'usdPerCcy' ? r.fxRate : 1 / r.fxRate;
+}
+
+// USD per 1 unit of r.currency. slot 't0' (default) or 't1' (attribution end date).
+// Priority: manual table > file column > 1.0 (flagged missing). USD and blank ccy -> 1.
+function fxOf(r, slot = 't0') {
+  const ccy = (r.currency || '').toUpperCase();
+  if (!ccy || ccy === 'USD') return 1;
+  const e = state.fx[ccy];
+  if (e) {
+    if (slot === 't1' && e.t1 > 0) return e.t1;
+    if (e.t0 > 0) return e.t0;
+  }
+  const f = fileFxUsdPerCcy(r);
+  if (f != null) return f;
+  return 1;
+}
+function fxMissing(r, slot = 't0') {
+  const ccy = (r.currency || '').toUpperCase();
+  if (!ccy || ccy === 'USD') return false;
+  const e = state.fx[ccy];
+  if (e && (e.t0 > 0 || (slot === 't1' && e.t1 > 0))) return false;
+  return fileFxUsdPerCcy(r) == null;
+}
+// Currencies without a usable T0 rate among `rows`
+function fxMissingCcys(rows) {
+  const miss = new Set();
+  rows.forEach(r => { if (fxMissing(r)) miss.add((r.currency || '').toUpperCase() || '?'); });
+  return [...miss].sort();
+}
+// USD market value of a position given in local nominal (m) at CB price (% of par)
+function mvUsd(r, nominalLocal) {
+  return nominalLocal * (r.convPrice || 0) / 100 * fxOf(r);
+}
+// Local nominal (m) backing a USD market value
+function nominalLocal(r, mvUsdVal) {
+  const px = r.convPrice || 0, fx = fxOf(r);
+  return (px > 0 && fx > 0) ? mvUsdVal / (px / 100) / fx : null;
+}
+
+function renderFxTable() {
+  const rows = state.universe.concat(state.t1 ? state.t1.rows : []);
+  const tbl = document.getElementById('tbl-fx');
+  const byCcy = {};
+  rows.forEach(r => {
+    const ccy = (r.currency || '').toUpperCase() || '?';
+    if (!byCcy[ccy]) byCcy[ccy] = { n: 0, fileRates: [] };
+    byCcy[ccy].n += 1;
+    const f = fileFxUsdPerCcy(r);
+    if (f != null) byCcy[ccy].fileRates.push(f);
+  });
+  const ccys = Object.keys(byCcy).sort();
+  document.getElementById('fx-count').textContent = `(${ccys.length})`;
+  tbl.querySelector('thead').innerHTML = `<tr>
+    <th class="text-col">CCY</th><th># bonds</th><th>File rate (median, USD per CCY)</th>
+    <th>USD per 1 CCY — T₀</th><th>USD per 1 CCY — T₁ (attribution)</th><th class="text-col">Effective T₀</th>
+  </tr>`;
+  tbl.querySelector('tbody').innerHTML = ccys.map(ccy => {
+    const info = byCcy[ccy];
+    const med = info.fileRates.length ? info.fileRates.slice().sort((a,b)=>a-b)[Math.floor(info.fileRates.length/2)] : null;
+    const e = state.fx[ccy] || {};
+    const isUsd = ccy === 'USD';
+    const eff = isUsd ? 1 : (e.t0 > 0 ? e.t0 : med);
+    const effTxt = isUsd ? '1 (base)' : (eff != null ? `${fmt(eff, 5)} ${e.t0 > 0 ? '(manual)' : '(file)'}` : '<span class="fx-missing">missing → 1.0</span>');
+    return `<tr>
+      <td class="text-col">${ccy}</td>
+      <td>${info.n}</td>
+      <td>${med != null ? fmt(med, 5) : '–'}</td>
+      <td>${isUsd ? '1' : `<input type="number" class="size-input fx-input" data-ccy="${ccy}" data-slot="t0" value="${e.t0 > 0 ? e.t0 : ''}" step="0.0001" min="0" placeholder="${med != null ? fmt(med, 4) : ''}">`}</td>
+      <td>${isUsd ? '1' : `<input type="number" class="size-input fx-input" data-ccy="${ccy}" data-slot="t1" value="${e.t1 > 0 ? e.t1 : ''}" step="0.0001" min="0" placeholder="= T₀">`}</td>
+      <td class="text-col">${effTxt}</td>
+    </tr>`;
+  }).join('');
+  tbl.querySelectorAll('input.fx-input').forEach(inp => {
+    inp.addEventListener('input', e => {
+      const ccy = e.target.dataset.ccy, slot = e.target.dataset.slot;
+      const v = parseFloat(e.target.value);
+      if (!state.fx[ccy]) state.fx[ccy] = {};
+      if (isFinite(v) && v > 0) state.fx[ccy][slot] = v; else delete state.fx[ccy][slot];
+      if (!state.fx[ccy].t0 && !state.fx[ccy].t1) delete state.fx[ccy];
+      saveFxStore();
+      updateFxStatus();
+      onFxChange();
+    });
+  });
+  updateFxStatus();
+}
+function updateFxStatus() {
+  const miss = fxMissingCcys(state.universe);
+  const el = document.getElementById('fx-status');
+  el.textContent = miss.length ? `⚠ no rate for ${miss.join(', ')} (treated as 1.0)` : 'all currencies covered';
+  el.className = 'ct' + (miss.length ? ' fx-missing' : '');
+}
+// Re-render everything that converts to USD (inputs keep focus: FX table itself is not re-rendered)
+function onFxChange() {
+  if (state.portfolio) { renderPortfolioTable(); renderSizer(); }
+  if (typeof renderIcbSizes === 'function' && icbState.rows) { renderIcbSizes(selectedCBs()); renderIcbImpact(selectedCBs()); }
+  if (state.attribution) runAttribution();
+}
+document.getElementById('fx-file-conv').addEventListener('change', () => { renderFxTable(); onFxChange(); });
 
 function excelDate(v) {
   if (v == null || v === '') return null;
@@ -1441,6 +1643,7 @@ function parseSheet(arrayBuffer, fileName) {
     r.vega         = toNum(row[map.vega]);
     r.theta        = toNum(row[map.theta]);
     r.chi          = toNum(row[map.chi]);
+    r.fxRate       = toNum(row[map.fxRate]);   // raw file value; convention set in FX section
     r.ric          = toStr(row[map.ric]);
     r.isin144a     = toStr(row[map.isin144a]);
     r.isinRegS     = toStr(row[map.isinRegS]);
@@ -1489,10 +1692,12 @@ async function loadUniverseFile(file) {
   document.getElementById('universe-content').style.display = 'block';
   initFilters();
   applyFilters();
+  renderFxTable();
   // Update T0 default for attribution
   state.t0 = { rows: parsed.rows, fileName: file.name };
   document.getElementById('dz-t0').textContent = `(default) ${file.name} · ${parsed.rows.length} bonds`;
   document.getElementById('dz-t0').classList.add('loaded');
+  prefillAttDate('t0', file.name);
   updateAttStatus();
   updateSelectionStatus();
 }
@@ -2316,11 +2521,12 @@ function renderSizerTable(sel) {
   thead.innerHTML = `<tr>
     <th class="text-col">Issuer</th><th class="text-col">ISIN</th>
     <th>Δ</th><th>Γ</th><th>Vega</th><th>Θ (1d)</th><th>CB Px</th>
-    <th>Size (USDm MV)</th><th>Δ$ (USDm)</th>
+    <th>Size (USDm MV)</th><th>Nominal (local m)</th><th>Δ$ (USDm)</th>
   </tr>`;
   tbody.innerHTML = sel.map(r => {
     const mv = state.sizerSizes[r.isin] || 0;
     const dDollar = mv * (r.delta != null ? r.delta : 0) / 100;
+    const nom = nominalLocal(r, mv);
     return `<tr>
       <td class="text-col">${r.issue || '–'}</td>
       <td class="text-col">${r.isin}</td>
@@ -2330,6 +2536,7 @@ function renderSizerTable(sel) {
       <td>${fmt(r.theta, 4)}</td>
       <td>${fmt(r.convPrice, 2)}</td>
       <td><input type="number" class="sizer-input" data-isin="${r.isin}" value="${mv}" step="0.5" min="0"></td>
+      <td class="sizer-nominal">${nom != null ? fmt(nom, 2) : '–'}${fxMissing(r) ? ' <span class="fx-missing" title="no FX rate">⚠</span>' : ''}</td>
       <td>${fmt(dDollar, 2)}</td>
     </tr>`;
   }).join('');
@@ -2341,7 +2548,11 @@ function renderSizerTable(sel) {
       // Live-update this row's Δ$ cell without re-rendering (keeps input focus)
       const r = sel.find(x => x.isin === isin);
       const row = e.target.closest('tr');
-      if (r && row) row.lastElementChild.textContent = fmt((state.sizerSizes[isin]) * (r.delta || 0) / 100, 2);
+      if (r && row) {
+        row.lastElementChild.textContent = fmt((state.sizerSizes[isin]) * (r.delta || 0) / 100, 2);
+        const nom = nominalLocal(r, state.sizerSizes[isin]);
+        row.querySelector('.sizer-nominal').textContent = nom != null ? fmt(nom, 2) : '–';
+      }
       renderSizerImpact(sel, portfolioBaseline());
       updateSizerAddInfo(sel);
     });
@@ -2520,7 +2731,8 @@ const portfolioCols = [
   { k:'sector', h:'Sector', text:true },
   { k:'currency', h:'CCY', text:true },
   { k:'weight', h:'Weight %', fmt: v => fmt(v*100, 3) },
-  { k:'_dollar', h:'$ Notional (USDm)' },
+  { k:'_dollar', h:'$ MV (USDm)' },
+  { k:'_nominal', h:'Nominal (local m)' },
   { k:'convPrice', h:'CB Px', fmt: v => fmt(v,2) },
   { k:'delta', h:'Δ', fmt: v => fmt(v,1) },
   { k:'iv', h:'IV', fmt: v => fmt(v,1) },
@@ -2557,6 +2769,7 @@ function renderPortfolioTable() {
     h.sort((a,b) => {
       let va = a[sc.col], vb = b[sc.col];
       if (sc.col === '_dollar') { va = a.weight; vb = b.weight; }
+      if (sc.col === '_nominal') { va = nominalLocal(a, a.weight * state.portfolio.notional); vb = nominalLocal(b, b.weight * state.portfolio.notional); }
       if (va == null && vb == null) return 0;
       if (va == null) return 1;
       if (vb == null) return -1;
@@ -2570,9 +2783,11 @@ function renderPortfolioTable() {
   tbody.innerHTML = h.map(r => '<tr>' + portfolioCols.map(c => {
     let v;
     if (c.k === '_dollar') v = r.weight * state.portfolio.notional;
+    else if (c.k === '_nominal') v = nominalLocal(r, r.weight * state.portfolio.notional);
     else v = r[c.k];
     let disp = c.fmt ? c.fmt(v) : (v == null ? '–' : v);
     if (c.k === '_dollar') disp = fmt(v, 2);
+    if (c.k === '_nominal') disp = (v == null ? '–' : fmt(v, 2)) + (fxMissing(r) ? ' <span class="fx-missing" title="no FX rate">⚠</span>' : '');
     return `<td class="${c.text?'text-col':''}">${disp}</td>`;
   }).join('') + '</tr>').join('');
 }
@@ -2582,10 +2797,12 @@ function renderPortfolioTable() {
    ========================================================= */
 document.getElementById('btn-export-portfolio').onclick = () => {
   if (!state.portfolio) { alert('Build a portfolio first.'); return; }
-  const cols = ['isin','maceId','issue','region','sector','currency','weight','dollarNotional','convPrice','equityPrice','parity','premium','delta','iv','edge','gamma','vega','theta','creditSpread','durationPut','ytmput','mcap','indexWeight','maturity'];
+  const cols = ['isin','maceId','issue','region','sector','currency','weight','dollarNotional','nominalLocal','fxUsdPerCcy','convPrice','equityPrice','parity','premium','delta','iv','edge','gamma','vega','theta','creditSpread','durationPut','ytmput','mcap','indexWeight','maturity'];
   const rows = state.portfolio.holdings.map(r => ({
     isin: r.isin, maceId: r.maceId, issue: r.issue, region: r.region, sector: r.sector, currency: r.currency,
     weight: (r.weight*100).toFixed(4), dollarNotional: (r.weight*state.portfolio.notional).toFixed(4),
+    nominalLocal: (() => { const n = nominalLocal(r, r.weight*state.portfolio.notional); return n != null ? n.toFixed(4) : ''; })(),
+    fxUsdPerCcy: fxOf(r),
     convPrice: r.convPrice, equityPrice: r.equityPrice, parity: r.parity, premium: r.premium,
     delta: r.delta, iv: r.iv, edge: r.edge, gamma: r.gamma, vega: r.vega, theta: r.theta,
     creditSpread: r.creditSpread, durationPut: r.durationPut, ytmput: r.ytmput,
@@ -2677,12 +2894,34 @@ function todayStr() {
 /* =========================================================
    ATTRIBUTION
    ========================================================= */
+// YYYYMMDD or YYYY-MM-DD in a file name -> 'YYYY-MM-DD', else null
+function dateFromFileName(name) {
+  const m = (name || '').match(/(20\d{2})[-_.]?(\d{2})[-_.]?(\d{2})/);
+  if (!m) return null;
+  const mo = +m[2], d = +m[3];
+  if (mo < 1 || mo > 12 || d < 1 || d > 31) return null;
+  return `${m[1]}-${m[2]}-${m[3]}`;
+}
+function prefillAttDate(slot, fileName) {
+  const el = document.getElementById(slot === 't0' ? 'att-date0' : 'att-date1');
+  const d = dateFromFileName(fileName);
+  if (d) el.value = d;
+}
+function attDates() {
+  const v0 = document.getElementById('att-date0').value, v1 = document.getElementById('att-date1').value;
+  const d0 = v0 ? new Date(v0) : null, d1 = v1 ? new Date(v1) : null;
+  const ok = d0 && d1 && isFinite(d0) && isFinite(d1);
+  return { d0, d1, dt_years: ok ? (d1 - d0) / (365.25 * 86400000) : null };
+}
+
 async function loadAttFile(file, slot) {
   const buf = await readFileAsArrayBuffer(file);
   const parsed = parseSheet(buf, file.name);
   state[slot] = { rows: parsed.rows, fileName: file.name };
   document.getElementById('dz-' + slot).textContent = `${file.name} · ${parsed.rows.length} bonds`;
   document.getElementById('dz-' + slot).classList.add('loaded');
+  prefillAttDate(slot, file.name);
+  if (slot === 't1') renderFxTable();   // new currencies may appear in T1
   updateAttStatus();
 }
 function updateAttStatus() {
@@ -2757,40 +2996,67 @@ function runAttribution() {
   // Compute returns
   const mode = document.getElementById('att-mode').value;
   const couponMode = document.getElementById('att-coupon').value;
-  // Date diff
-  let dt_years = 0;
-  // Try to derive from filenames or use a default
-  // No reliable way without snapshot dates — set to 0 unless user provides via filename pattern (e.g., 20250508)
-  const m0 = state.t0.fileName.match(/(\d{4})(\d{2})(\d{2})/);
-  const m1 = state.t1.fileName.match(/(\d{4})(\d{2})(\d{2})/);
-  if (m0 && m1) {
-    const d0 = new Date(`${m0[1]}-${m0[2]}-${m0[3]}`);
-    const d1 = new Date(`${m1[1]}-${m1[2]}-${m1[3]}`);
-    dt_years = (d1 - d0) / (365.25 * 24 * 3600 * 1000);
-  }
+  const retCcy = document.getElementById('att-ccy').value;
+  const droppedMode = document.getElementById('att-dropped').value;
+  const renorm = document.getElementById('att-renorm').value === 'yes';
+  const { dt_years } = attDates();
+  const warnings = [];
+  if (dt_years == null) warnings.push('T₀ / T₁ dates missing: Δt unknown' + (couponMode === 'yes' ? ' — accrued coupon NOT added' : ''));
+  else if (dt_years <= 0) warnings.push('T₁ date is not after T₀: Δt ≤ 0' + (couponMode === 'yes' ? ' — accrued coupon NOT added' : ''));
+  const accrue = couponMode === 'yes' && dt_years != null && dt_years > 0;
 
-  matched.forEach(m => {
-    const r0 = m.r0, r1 = m.r1;
-    if (r0.convPrice == null || r1.convPrice == null || r0.convPrice <= 0) {
-      m.ret = null; return;
-    }
-    const dP_cb = r1.convPrice - r0.convPrice;
-    const dParity = (r1.parity != null && r0.parity != null) ? (r1.parity - r0.parity) : null;
+  // Local-currency return of a T0 bond given an end price (and, for matched bonds, the T1 row for the hedge leg)
+  function localReturn(r0, p1, r1) {
+    if (r0.convPrice == null || p1 == null || r0.convPrice <= 0) return { ret: null };
+    const dP_cb = p1 - r0.convPrice;
+    const dParity = (r1 && r1.parity != null && r0.parity != null) ? (r1.parity - r0.parity) : null;
     let ret;
     if (mode === 'outright') {
       ret = dP_cb / r0.convPrice;
     } else {
-      // delta-hedged: (dP_CB - delta_t0/100 * dParity) / P_CB_t0
-      if (r0.delta == null || dParity == null) { m.ret = null; return; }
-      ret = (dP_cb - (r0.delta/100) * dParity) / r0.convPrice;
+      // delta-hedged: (dP_CB - delta_t0/100 * dParity) / P_CB_t0. Dropped bonds have no T1 parity: hedge leg = 0.
+      if (r0.delta == null) return { ret: null };
+      if (r1 && dParity == null) return { ret: null };
+      ret = (dP_cb - (r0.delta/100) * (dParity || 0)) / r0.convPrice;
     }
-    if (couponMode === 'yes' && r0.coupon != null && dt_years > 0) {
-      ret += (r0.coupon / 100) * dt_years;  // coupon in % of par, accrual = coupon * dt
-    }
-    m.ret = ret;
-    m.dP_cb = dP_cb;
-    m.dParity = dParity;
+    if (accrue && r0.coupon != null) ret += (r0.coupon / 100) * dt_years;  // coupon in % of par, linear accrual
+    return { ret, dP_cb, dParity };
+  }
+  // USD return = (1 + local) * fx1/fx0 - 1. fx1 falls back to fx0 (no FX P&L) when no T1 rate is known.
+  let fxMissingCount = 0;
+  function toRetCcy(r0, r1, retLocal) {
+    if (retLocal == null || retCcy !== 'usd') return { ret: retLocal, fxRet: null };
+    if (fxMissing(r0)) fxMissingCount++;
+    const fx0 = fxOf(r0, 't0');
+    const man = state.fx[(r0.currency || '').toUpperCase()] || {};
+    let fx1;
+    if (man.t1 > 0) fx1 = man.t1;                                                   // manual T1
+    else if (r1 && !(man.t0 > 0) && fileFxUsdPerCcy(r1) != null) fx1 = fileFxUsdPerCcy(r1);  // T1 file column
+    else fx1 = fx0;                                                                 // no T1 info: no FX P&L
+    const fxRet = fx0 > 0 ? fx1 / fx0 - 1 : 0;
+    return { ret: (1 + retLocal) * (1 + fxRet) - 1, fxRet };
+  }
+
+  matched.forEach(m => {
+    const lr = localReturn(m.r0, m.r1.convPrice, m.r1);
+    const cr = toRetCcy(m.r0, m.r1, lr.ret);
+    m.retLocal = lr.ret; m.fxRet = cr.fxRet; m.ret = cr.ret;
+    m.dP_cb = lr.dP_cb; m.dParity = lr.dParity;
   });
+
+  // Dropped bonds: exit price -> return, or flat, or excluded
+  dropped.forEach(d => {
+    const r0 = d.r0;
+    let p1 = null;
+    if (droppedMode === 'exit') { const v = state.attExitPrices[r0.isin]; if (v != null && v > 0) p1 = v; }
+    else if (droppedMode === 'flat') p1 = r0.convPrice;
+    d.exitPrice = p1;
+    if (p1 == null) { d.ret = null; d.retLocal = null; d.fxRet = null; d.dP_cb = null; return; }
+    const lr = localReturn(r0, p1, null);
+    const cr = toRetCcy(r0, null, lr.ret);
+    d.retLocal = lr.ret; d.fxRet = cr.fxRet; d.ret = cr.ret; d.dP_cb = lr.dP_cb;
+  });
+  if (retCcy === 'usd' && fxMissingCount > 0) warnings.push(`USD mode: ${fxMissingCount} bond(s) without FX rate (FX P&L = 0 for them — see FX table in Universe tab)`);
 
   // Determine portfolio weights
   const portMode = document.getElementById('att-portfolio').value;
@@ -2822,23 +3088,77 @@ function runAttribution() {
     }
   }
 
-  // Compute contributions
-  matched.forEach(m => {
-    const k = getKey(m.r0, matchKey);
-    m.weight = weights[k] || 0;
-    m.contrib = (m.ret != null && m.weight) ? m.weight * m.ret : 0;
+  // Raw T0 weights. Covered = has a return (matched with prices, or dropped with exit/flat price).
+  const all = matched.concat(dropped);
+  all.forEach(it => { it.rawWeight = weights[getKey(it.r0, matchKey)] || 0; });
+  const wRawTotal = Object.values(weights).reduce((a, b) => a + b, 0);
+  const wMatched = matched.reduce((a, m) => a + m.rawWeight, 0);
+  const wDroppedCovered = dropped.filter(d => d.ret != null).reduce((a, d) => a + d.rawWeight, 0);
+  const wCovered = all.filter(it => it.ret != null).reduce((a, it) => a + it.rawWeight, 0);
+  const wUncovered = Math.max(0, wRawTotal - wCovered);
+  const scale = (renorm && wCovered > 0) ? 1 / wCovered : 1;
+  all.forEach(it => {
+    it.weight = it.ret != null ? it.rawWeight * scale : it.rawWeight;
+    it.contrib = (it.ret != null && it.weight) ? it.weight * it.ret : 0;
   });
-  // Total return
-  const totalReturn = matched.reduce((a, m) => a + (m.contrib || 0), 0);
-  // Coverage of weights
-  const wsum = matched.reduce((a, m) => a + m.weight, 0);
+  const totalReturn = all.reduce((a, it) => a + (it.contrib || 0), 0);
+  if (!renorm && wUncovered > 0.0005) warnings.push(`${(wUncovered*100).toFixed(1)}% of T₀ weight has no return (treated as cash at 0%)`);
+  if (renorm && wUncovered > 0.0005) warnings.push(`${(wUncovered*100).toFixed(1)}% of T₀ weight not covered — weights renormalized on the remaining ${(wCovered*100).toFixed(1)}%`);
 
-  state.attribution = { matched, dropped, added, totalReturn, wsum, dt_years, mode, portSource };
+  // Rows that carry a contribution (charts, top/bottom, buckets): matched + priced dropped
+  const contribRows = matched.filter(m => m.ret != null).concat(dropped.filter(d => d.ret != null));
 
+  state.attribution = { matched, dropped, added, contribRows, totalReturn, wsum: wMatched, wDroppedCovered, wUncovered, wCovered,
+    dt_years, mode, retCcy, droppedMode, renorm, portSource, warnings };
+
+  document.getElementById('att-warn').innerHTML = warnings.map(w => '⚠ ' + w).join('<br>');
   document.getElementById('attribution-content').style.display = 'block';
   renderAttKPIs();
   renderAttCharts();
   renderAttTables();
+  renderAttDropped();
+}
+['att-date0','att-date1','att-ccy','att-dropped','att-renorm','att-mode','att-coupon','att-portfolio','att-key'].forEach(id => {
+  document.getElementById(id).addEventListener('change', () => { if (state.attribution) runAttribution(); });
+});
+
+function renderAttDropped() {
+  const a = state.attribution;
+  const sec = document.getElementById('att-dropped-section');
+  if (!a.dropped.length) { sec.style.display = 'none'; return; }
+  sec.style.display = 'block';
+  document.getElementById('att-dropped-count').textContent = `(${a.dropped.length} · ${(a.dropped.reduce((s,d)=>s+d.rawWeight,0)*100).toFixed(2)}% of T₀ weight)`;
+  const tbl = document.getElementById('tbl-att-dropped');
+  tbl.querySelector('thead').innerHTML = `<tr>
+    <th class="text-col">Issuer</th><th class="text-col">ISIN</th><th class="text-col">CCY</th>
+    <th>T₀ wt %</th><th>CB Px T₀</th><th>Exit px (local)</th><th>Ret %</th><th>Contrib %</th>
+  </tr>`;
+  const sorted = a.dropped.slice().sort((x, y) => y.rawWeight - x.rawWeight);
+  tbl.querySelector('tbody').innerHTML = sorted.map(d => {
+    const r = d.r0;
+    const v = state.attExitPrices[r.isin];
+    const ret = d.ret != null ? d.ret*100 : null, cont = d.ret != null ? d.contrib*100 : null;
+    const disabled = a.droppedMode !== 'exit' ? 'disabled' : '';
+    const shown = a.droppedMode === 'flat' ? fmt(r.convPrice, 2) : (v != null ? v : '');
+    return `<tr>
+      <td class="text-col">${r.issue || ''}</td>
+      <td class="text-col">${r.isin}</td>
+      <td class="text-col">${r.currency || '–'}</td>
+      <td>${(d.rawWeight*100).toFixed(3)}</td>
+      <td>${fmt(r.convPrice, 2)}</td>
+      <td><input type="number" class="size-input exit-input" data-isin="${r.isin}" value="${shown}" step="0.5" min="0" ${disabled} placeholder="not covered"></td>
+      <td class="${ret == null ? '' : (ret >= 0 ? 'pos' : 'neg')}">${ret != null ? ret.toFixed(2)+'%' : '–'}</td>
+      <td class="${cont == null ? '' : (cont >= 0 ? 'pos' : 'neg')}">${cont != null ? cont.toFixed(3)+'%' : '–'}</td>
+    </tr>`;
+  }).join('');
+  tbl.querySelectorAll('input.exit-input').forEach(inp => {
+    inp.addEventListener('change', e => {
+      const v = parseFloat(e.target.value);
+      if (isFinite(v) && v > 0) state.attExitPrices[e.target.dataset.isin] = v;
+      else delete state.attExitPrices[e.target.dataset.isin];
+      runAttribution();
+    });
+  });
 }
 
 document.getElementById('btn-run-att').onclick = runAttribution;
@@ -2848,15 +3168,17 @@ function renderAttKPIs() {
   const a = state.attribution;
   if (!a) return;
   const meanRet = a.matched.filter(m => m.ret != null).reduce((s,m,_,arr)=>s+m.ret/arr.length, 0);
+  const nPriced = a.dropped.filter(d => d.ret != null).length;
   const cards = [
-    { label: 'Portfolio Return', value: fmtPct(a.totalReturn*100, 3), cls: a.totalReturn >= 0 ? 'pos' : 'neg' },
+    { label: 'Portfolio Return' + (a.retCcy === 'usd' ? ' (USD)' : ' (local)'), value: fmtPct(a.totalReturn*100, 3), cls: a.totalReturn >= 0 ? 'pos' : 'neg' },
     { label: 'Mean Bond Return', value: fmtPct(meanRet*100, 3), cls: meanRet >= 0 ? 'pos' : 'neg' },
     { label: 'Matched Bonds', value: a.matched.length },
     { label: 'Σ weight matched', value: fmtPct(a.wsum*100, 1) },
-    { label: 'Dropped (in T₀ only)', value: a.dropped.length },
+    { label: 'Dropped (in T₀ only)', value: `${a.dropped.length} · ${nPriced} priced`, cls: (a.dropped.length > nPriced) ? 'neg' : '' },
+    { label: 'Σ weight not covered', value: fmtPct(a.wUncovered*100, 1), cls: a.wUncovered > 0.0005 ? 'neg' : '' },
     { label: 'Added (in T₁ only)', value: a.added.length },
-    { label: 'Δt (years)', value: fmt(a.dt_years, 3) },
-    { label: 'Mode', value: a.mode === 'outright' ? 'Outright' : 'Δ-hedged' },
+    { label: 'Δt', value: a.dt_years == null ? '— (set dates)' : `${fmt(a.dt_years, 3)} y · ${Math.round(a.dt_years*365.25)} d`, cls: a.dt_years == null ? 'neg' : '' },
+    { label: 'Mode', value: (a.mode === 'outright' ? 'Outright' : 'Δ-hedged') + (a.renorm ? ' · renorm.' : ' · raw wts') },
     { label: 'Portfolio src', value: a.portSource || '—' },
   ];
   document.getElementById('kpi-attribution').innerHTML = cards.map(c =>
@@ -2902,7 +3224,7 @@ function barChartContrib(canvasId, data) {
 }
 
 function renderAttCharts() {
-  const m = state.attribution.matched;
+  const m = state.attribution.contribRows;
   barChartContrib('ch-att-region', attBucket(m, r=>r.region));
   barChartContrib('ch-att-sector', attBucket(m, r=>r.sector).slice(0, 12));
   barChartContrib('ch-att-delta', attBucket(m, r=>deltaBucket(r.delta)));
@@ -2927,6 +3249,8 @@ const attributionCols = [
   { k:'delta0', h:'Δ T₀', get: m => m.r0.delta, fmt: v => fmt(v,1) },
   { k:'iv0', h:'IV T₀', get: m => m.r0.iv, fmt: v => fmt(v,1) },
   { k:'iv1', h:'IV T₁', get: m => m.r1.iv, fmt: v => fmt(v,1) },
+  { k:'retLocal', h:'Ret local %', get: m => m.retLocal, fmt: v => v != null ? (v*100).toFixed(3)+'%' : '–', signed: true },
+  { k:'fxRet', h:'FX %', get: m => m.fxRet, fmt: v => v != null ? (v*100).toFixed(3)+'%' : '–', signed: true },
   { k:'ret', h:'Return %', get: m => m.ret, fmt: v => v != null ? (v*100).toFixed(3)+'%' : '–', signed: true },
   { k:'contrib', h:'Contrib %', get: m => m.contrib, fmt: v => v != null ? (v*100).toFixed(3)+'%' : '–', signed: true },
 ];
@@ -2934,7 +3258,7 @@ const attributionCols = [
 function renderAttTables() {
   const a = state.attribution;
   // Top contrib / detract
-  const sorted = a.matched.filter(m => m.contrib != null).slice().sort((x,y) => y.contrib - x.contrib);
+  const sorted = a.contribRows.slice().sort((x,y) => y.contrib - x.contrib);
   const topN = 15;
   renderMiniAttTable('tbl-top-contrib', sorted.slice(0, topN));
   renderMiniAttTable('tbl-top-detract', sorted.slice(-topN).reverse());
@@ -2953,7 +3277,7 @@ function renderMiniAttTable(id, rows) {
     const ret = m.ret != null ? m.ret*100 : null;
     const cont = m.contrib != null ? m.contrib*100 : null;
     return `<tr>
-      <td class="text-col">${m.r0.issue || ''}</td>
+      <td class="text-col">${m.r0.issue || ''}${m.r1 ? '' : ' <span class="muted" title="dropped between T₀ and T₁">(exit)</span>'}</td>
       <td class="text-col">${regionTag(m.r0.region)}</td>
       <td>${(m.weight*100).toFixed(2)}</td>
       <td class="${ret>=0?'pos':'neg'}">${ret!=null?ret.toFixed(2)+'%':'–'}</td>
@@ -3004,14 +3328,18 @@ function renderFullAttTable() {
 
 function exportAttCSV() {
   if (!state.attribution) { alert('Run attribution first.'); return; }
-  const cols = ['isin','maceId','issue','region','sector','currency','weight','cb_t0','cb_t1','d_cb','eq_t0','eq_t1','parity_t0','parity_t1','d_parity','delta_t0','iv_t0','iv_t1','return_pct','contribution_pct'];
-  const rows = state.attribution.matched.map(m => ({
+  const cols = ['status','isin','maceId','issue','region','sector','currency','weight_raw','weight','cb_t0','cb_t1','d_cb','eq_t0','eq_t1','parity_t0','parity_t1','d_parity','delta_t0','iv_t0','iv_t1','return_local_pct','fx_return_pct','return_pct','contribution_pct'];
+  const a = state.attribution;
+  const rows = a.matched.concat(a.dropped).map(m => ({
+    status: m.r1 ? 'matched' : (m.ret != null ? 'dropped-priced' : 'dropped-uncovered'),
     isin: m.r0.isin, maceId: m.r0.maceId, issue: m.r0.issue, region: m.r0.region, sector: m.r0.sector, currency: m.r0.currency,
-    weight: (m.weight*100).toFixed(4),
-    cb_t0: m.r0.convPrice, cb_t1: m.r1.convPrice, d_cb: m.dP_cb,
-    eq_t0: m.r0.equityPrice, eq_t1: m.r1.equityPrice,
-    parity_t0: m.r0.parity, parity_t1: m.r1.parity, d_parity: m.dParity,
-    delta_t0: m.r0.delta, iv_t0: m.r0.iv, iv_t1: m.r1.iv,
+    weight_raw: (m.rawWeight*100).toFixed(4), weight: (m.weight*100).toFixed(4),
+    cb_t0: m.r0.convPrice, cb_t1: m.r1 ? m.r1.convPrice : m.exitPrice, d_cb: m.dP_cb,
+    eq_t0: m.r0.equityPrice, eq_t1: m.r1 ? m.r1.equityPrice : '',
+    parity_t0: m.r0.parity, parity_t1: m.r1 ? m.r1.parity : '', d_parity: m.dParity,
+    delta_t0: m.r0.delta, iv_t0: m.r0.iv, iv_t1: m.r1 ? m.r1.iv : '',
+    return_local_pct: m.retLocal != null ? (m.retLocal*100).toFixed(4) : '',
+    fx_return_pct: m.fxRet != null ? (m.fxRet*100).toFixed(4) : '',
     return_pct: m.ret != null ? (m.ret*100).toFixed(4) : '',
     contribution_pct: m.contrib != null ? (m.contrib*100).toFixed(4) : ''
   }));
@@ -3514,23 +3842,26 @@ function renderIcbSizes(sel) {
     return;
   }
   const port = getPortfolioInputs();
-  const unit = port.unit === 'mv' ? 'MV (USDm)' : 'Nominal (USDm)';
+  const unit = port.unit === 'mv' ? 'MV (USDm)' : 'Nominal (local m)';
   thead.innerHTML = `<tr>
     <th class="text-col">CB</th>
     <th class="text-col">ISIN</th>
     <th>CB Px</th>
+    <th>CCY / FX</th>
     <th>${unit}</th>
     <th>MV (USDm)</th>
     <th>% NAV</th>
   </tr>`;
   tbody.innerHTML = sel.map(r => {
     const sz = icbState.sizes[r.isin] || 0;
-    const mv = port.unit === 'mv' ? sz : (sz * (r.convPrice || 0) / 100);
+    const mv = port.unit === 'mv' ? sz : mvUsd(r, sz);
     const pctNav = port.nav > 0 ? (mv / port.nav * 100) : 0;
+    const fxTxt = `${r.currency || '–'} ${fmt(fxOf(r), 4)}${fxMissing(r) ? ' <span class="fx-missing" title="no FX rate">⚠</span>' : ''}`;
     return `<tr>
       <td class="text-col">${cbLabel(r, true)}</td>
       <td class="text-col">${r.isin}</td>
       <td>${fmt(r.convPrice, 2)}</td>
+      <td>${fxTxt}</td>
       <td><input type="number" class="size-input" data-isin="${r.isin}" value="${sz}" step="0.5" min="0"></td>
       <td>${fmt(mv, 2)}</td>
       <td>${fmt(pctNav, 2)}</td>
@@ -3559,7 +3890,7 @@ function computeIcbAdds(sel, port) {
   for (const r of sel) {
     const sz = icbState.sizes[r.isin] || 0;
     if (sz <= 0) continue;
-    const mv = port.unit === 'mv' ? sz : sz * (r.convPrice || 0) / 100;
+    const mv = port.unit === 'mv' ? sz : mvUsd(r, sz);
     mvAdd += mv;
     num.delta += mv * (r.delta != null ? r.delta : 0);
     num.cs    += mv * (r.creditSpread != null ? r.creditSpread : 0);
