@@ -610,6 +610,7 @@ table.cmp .metric-name { color: var(--text-dim); font-family: var(--sans); text-
     <button class="tab-btn" data-tab="portfolio">Portfolio Builder</button>
     <button class="tab-btn" data-tab="attribution">P&amp;L Attribution</button>
     <button class="tab-btn" data-tab="issuer-cb">Issuer CB</button>
+    <button class="tab-btn" data-tab="cheap-calls">Cheap Calls</button>
     <button class="tab-btn" data-tab="help">Help</button>
   </nav>
   <div class="header-status" id="header-status">no file loaded</div>
@@ -682,7 +683,7 @@ table.cmp .metric-name { color: var(--text-dim); font-family: var(--sans); text-
           <div class="chart-card"><h3>Delta histogram</h3><div class="canvas-wrap"><canvas id="ch-delta"></canvas></div></div>
           <div class="chart-card"><h3>Implied Vol histogram</h3><div class="canvas-wrap"><canvas id="ch-iv"></canvas></div></div>
           <div class="chart-card"><h3>Credit Spread histogram (bp)</h3><div class="canvas-wrap"><canvas id="ch-cs"></canvas></div></div>
-          <div class="chart-card"><h3>Edge to Theo (pts)</h3><div class="canvas-wrap"><canvas id="ch-edge"></canvas></div></div>
+          <div class="chart-card"><h3>Edge to Theo (%, &gt; 0 = rich)</h3><div class="canvas-wrap"><canvas id="ch-edge"></canvas></div></div>
         </div>
       </div>
     </div>
@@ -734,7 +735,7 @@ table.cmp .metric-name { color: var(--text-dim); font-family: var(--sans); text-
             <option value="gammaNorm">Gamma vol/duration-adjusted (Γ·σ√T)</option>
             <option value="gammaPnl">Gamma P&amp;L @ IV (pts/day)</option>
             <option value="gammaTheta">Gamma per theta (Γ P&amp;L / |Θ|)</option>
-            <option value="edge">Edge-weighted (cheapness)</option>
+            <option value="edge">Cheapness-weighted (−Edge)</option>
           </select>
           <div class="helper">Initial weights, before tilt &amp; constraints</div>
         </div>
@@ -804,7 +805,7 @@ table.cmp .metric-name { color: var(--text-dim); font-family: var(--sans); text-
             <option value="gammaPnl">Gamma P&amp;L @ IV (pts/day)</option>
             <option value="gammaTheta">Gamma per theta (Γ P&amp;L / |Θ|)</option>
             <option value="vega">Vega</option>
-            <option value="edge">Edge to Theo</option>
+            <option value="edge">Edge to Theo (% , &gt; 0 = rich)</option>
             <option value="duration">Duration to Mat/Put</option>
             <option value="creditSpread">Credit Spread</option>
             <option value="premium">Conv Premium</option>
@@ -814,7 +815,7 @@ table.cmp .metric-name { color: var(--text-dim); font-family: var(--sans); text-
         <div class="form-row">
           <label>Target value (if "target" mode)</label>
           <input type="number" id="pb-tilt-target" value="50" step="1">
-          <div class="helper">e.g. delta 50, IV 35, edge 1.0</div>
+          <div class="helper">e.g. delta 50, IV 35, edge −1.0 (cheap)</div>
         </div>
         <div class="form-row">
           <label>Tilt intensity λ</label>
@@ -1185,6 +1186,95 @@ table.cmp .metric-name { color: var(--text-dim); font-family: var(--sans); text-
   </div>
 </div>
 
+<!-- ============== TAB: CHEAP CALLS ============== -->
+<div class="tab-pane" id="tab-cheap-calls">
+
+  <div class="callout callout-empty" id="cc-empty">Load a universe file in the Universe tab first.</div>
+
+  <div id="cc-content" style="display:none">
+
+    <div class="section">
+      <div class="section-head" onclick="toggleSection(this)"><h2>Screen setup <span class="count" id="cc-count"></span></h2><span class="chev">▼</span></div>
+      <div class="section-body">
+        <div class="form-grid">
+          <div class="form-row">
+            <label>Source</label>
+            <select id="cc-source">
+              <option value="filtered">Filtered universe (Universe tab)</option>
+              <option value="universe">Full universe</option>
+              <option value="selected">Selected CBs</option>
+            </select>
+            <div class="helper">Use the Universe filters to define the index / sub-index to screen.</div>
+          </div>
+          <div class="form-row">
+            <label>Delta min / max</label>
+            <div style="display:flex; gap:6px"><input type="number" id="cc-dmin" value="20" step="5"><input type="number" id="cc-dmax" value="80" step="5"></div>
+            <div class="helper">Keeps option-like (balanced) CBs; IV is noisy on busted / deep ITM names.</div>
+          </div>
+          <div class="form-row">
+            <label>Max credit spread (bp)</label>
+            <input type="number" id="cc-csmax" value="800" step="50">
+            <div class="helper">High spreads drag the IV down mechanically (credit-driven, not cheap optionality).</div>
+          </div>
+          <div class="form-row">
+            <label>Exclude mandatories</label>
+            <select id="cc-nomand"><option value="1">Yes</option><option value="0">No</option></select>
+          </div>
+          <div class="form-row">
+            <label>Relative-value bucket</label>
+            <select id="cc-bucket">
+              <option value="sector">Sector</option>
+              <option value="region">Region</option>
+              <option value="currency">Currency</option>
+              <option value="country">Country</option>
+            </select>
+            <div class="helper">Peer group for “IV−Vol vs bucket” and the bucket chart.</div>
+          </div>
+          <div class="form-row">
+            <label>Input Vol at cap</label>
+            <select id="cc-cap">
+              <option value="keep">Keep (out of the fit only)</option>
+              <option value="novol">Keep, ignore vol-based factors</option>
+              <option value="exclude">Exclude from screen</option>
+            </select>
+            <div class="helper">FTSE caps Input Vol (60): true vol is higher, so IV − Input Vol understates the gap.</div>
+          </div>
+          <div class="form-row">
+            <label>Rows shown</label>
+            <input type="number" id="cc-topn" value="50" min="5" step="5">
+          </div>
+        </div>
+
+        <div class="filter-title" style="margin-top:14px">Score weights (percentile ranks, normalized to 100%)</div>
+        <div class="form-grid" id="cc-weights-grid"></div>
+      </div>
+    </div>
+
+    <div class="kpi-grid" id="kpi-cc"></div>
+
+    <div class="charts-grid">
+      <div class="chart-card"><h3>Implied vol vs Input vol — index fit (green = cheapest quintile)</h3><div class="canvas-wrap" style="height:300px"><canvas id="ch-cc-scatter"></canvas></div></div>
+      <div class="chart-card"><h3 id="cc-bucket-title">Median IV − Input Vol by bucket (vol pts, &lt; 0 = cheap)</h3><div class="canvas-wrap" style="height:300px"><canvas id="ch-cc-bucket"></canvas></div></div>
+    </div>
+
+    <div class="section">
+      <div class="section-head"><h2>Cheapest embedded calls <span class="count" id="cc-rank-count"></span></h2></div>
+      <div class="section-body">
+        <div class="toolbar">
+          <span class="ct" id="cc-sel-status">—</span>
+          <button class="btn" id="btn-cc-select">Add shown to selection</button>
+          <button class="btn secondary" id="btn-cc-export">Export (CSV)</button>
+        </div>
+        <div class="table-wrap">
+          <table class="data" id="tbl-cc"><thead></thead><tbody></tbody></table>
+        </div>
+        <div class="helper" style="margin-top:6px">Score 100 = cheapest of the screened set on every factor. Θ* = theta estimated (no Theta column). Click headers to sort.</div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
 <!-- ============== TAB HELP ============== -->
 <div class="tab-pane help-pane" id="tab-help">
   <div class="section"><div class="section-body">
@@ -1202,7 +1292,8 @@ table.cmp .metric-name { color: var(--text-dim); font-family: var(--sans); text-
       <li><code>Equal weight</code>: 1/N</li>
       <li><code>Market cap</code>: w<sub>i</sub> = MC<sub>i</sub> / Σ MC</li>
       <li><code>Index weight</code>: poids FTSE renormalisé sur l'univers filtré</li>
-      <li><code>Delta / Gamma / Edge weighted</code>: w<sub>i</sub> ∝ max(0, x<sub>i</sub>) (utile pour overweight bonds with positive metric)</li>
+      <li><code>Delta / Gamma weighted</code>: w<sub>i</sub> ∝ max(0, x<sub>i</sub>) (utile pour overweight bonds with positive metric)</li>
+      <li><code>Cheapness-weighted (−Edge)</code>: w<sub>i</sub> ∝ max(0, −Edge<sub>i</sub>). Dans le fichier FTSE, <code>Edge to Theo</code> = (Px − Theo) / Px en % : &gt; 0 = riche, donc on surpondère les CB sous leur prix théorique. Même convention pour le facteur « Cheapness vs theo » du scoring Issuer CB.</li>
       <li><code>Gamma Γ·σ√T</code>: Γ × Parité × IV × √T / 100 = variation de delta (%) pour un mouvement 1σ jusqu'au put/maturité (≈ 100·n(d<sub>1</sub>), ~40 ATM). Le gamma brut ∝ 1/(σ√T) sur-pondère mécaniquement les CB courtes et peu volatiles; cette mesure ne garde que la « position » sur la courbe de convexité. T = Dur. to Put/Mat (sinon date put/maturité).</li>
       <li><code>Gamma P&amp;L @ IV</code>: ½ × Γ/100 × Parité² × IV² / 365 — P&amp;L de convexité attendu par jour (pts) si le sous-jacent réalise l'IV. Récompense les noms volatils.</li>
       <li><code>Gamma per theta</code>: Γ P&amp;L/jour à l'Input Vol (sinon IV) ÷ |Θ|. &gt; 1 : la convexité paie son theta. Θ ≥ 0 (carry couvre la décroissance) → plafonné à 5. Si Θ est estimé (pas de colonne Theta) et Input Vol absent, le ratio vaut ≈ 1 partout (identité BS) et ne discrimine pas. Utilisé aussi comme facteur « Convexity per theta » du scoring ICB (score 0→10 entre 0.5 et 1.5).</li>
@@ -1235,6 +1326,18 @@ table.cmp .metric-name { color: var(--text-dim); font-family: var(--sans); text-
 
     <h3>FX (table dans l'onglet Universe)</h3>
     <p>Tout ce qui est en USD passe par la table FX : nominal local ↔ MV USD dans le Portfolio Builder, le Position Sizer et le module Issuer CB (unité « Nominal »), et le mode USD de l'attribution. Taux en USD par unité de devise, saisis à la main (sauvegardés dans le navigateur) ou lus depuis une colonne <code>FX Rate</code> du fichier (convention à choisir : CCY par USD ou USD par CCY — vérifier avec la médiane affichée, p.ex. JPY ≈ 0.0067 USD). Devise sans taux → 1.0, signalé par ⚠.</p>
+
+    <h3>Cheap Calls</h3>
+    <p>Classe les options embarquées des CB du périmètre (univers filtré par défaut — donc l'indice / sous-indice que tu as défini) de la moins chère à la plus chère. Périmètre : delta dans la fourchette, credit spread ≤ max, mandatories exclues, IV renseignée.</p>
+    <ul>
+      <li><code>IV − Input Vol</code> (pts de vol) : vol implicite du prix CB vs la vol d'input du modèle (référence « juste »). &lt; 0 = l'option est payée sous la vol de référence.</li>
+      <li><code>Résidu vs fit indice</code> : IV − (a + b × Input Vol), régression OLS robuste (2 passes, coupe à 3 × MAD) sur le périmètre. Neutralise le niveau général de cherté/richesse de l'indice : mesure la cherté <em>relative</em> à la façon dont l'indice price la vol.</li>
+      <li><code>IV−Vol vs bucket</code> : (IV − Input Vol) moins la médiane de son bucket (secteur / région / devise / pays).</li>
+      <li><code>(Theo − Px) / Vega</code> : écart au prix théorique exprimé en pts de vol (&gt; 0 = cheap; ignoré si Vega &lt; 0.02). C'est ≈ Input Vol − IV linéarisé, donc poids 0 par défaut pour ne pas compter deux fois. NB : dans le fichier FTSE, <code>Edge to Theo</code> = (Px − Theo) / Px en % → <b>&gt; 0 = riche</b>.</li>
+      <li><b>Cap d'Input Vol</b> : FTSE plafonne l'Input Vol (60 dans les fichiers récents). Une valeur au max partagée par ≥ 5 % des CB est traitée comme un cap : exclue de la régression, marquée <code>cap</code>, et au choix gardée, neutralisée sur les facteurs vol, ou exclue.</li>
+      <li><code>Γ/Θ</code> : P&amp;L gamma journalier à l'Input Vol ÷ |Θ| (voir plus haut) — ce que la convexité rapporte par unité de theta payée.</li>
+    </ul>
+    <p>Score = moyenne pondérée des rangs percentiles (0–100, 100 = le moins cher) sur les facteurs disponibles (poids renormalisés si un facteur manque). Limites : l'IV dépend du credit spread supposé — un spread sous-estimé fait paraître l'option chère, sur-estimé la fait paraître cheap; vérifier la colonne CS des noms en tête de classement. L'Input Vol est la référence du fichier, pas la vol réalisée récente.</p>
 
     <h3>Limitations</h3>
     <ul>
@@ -2216,7 +2319,8 @@ function initialWeights(rows, scheme) {
       break;
     }
     case 'edge':
-      raw = rows.map(r => Math.max(0.01, (r.edge != null ? r.edge : 0)));
+      // FTSE Edge to Theo = (Px − Theo) / Px in %: cheapness is −Edge
+      raw = rows.map(r => Math.max(0.01, (r.edge != null ? -r.edge : 0)));
       break;
     default:
       raw = rows.map(_ => 1);
@@ -3363,7 +3467,7 @@ const icbState = {
 };
 
 const ICB_FACTORS = [
-  { key: 'cheapnessTheo',   label: 'Cheapness vs theo (Edge)' },
+  { key: 'cheapnessTheo',   label: 'Cheapness vs theo (−Edge)' },
   { key: 'cheapnessIvPeer', label: 'IV cheap vs issuer peers' },
   { key: 'ivOverRv',        label: 'IV / Input Vol (low = cheap)' },
   { key: 'convexity',       label: 'Convexity per theta (Γ P&L / |Θ|)' },
@@ -3566,7 +3670,7 @@ const ICB_CMP_SECTIONS = [
     { label: 'Bond floor (Inv Value)', v: r => fmt(r.invValue, 2) },
     { label: 'Prem to Inv Val %', v: r => fmt(r.premToInvVal, 2) },
     { label: 'Theo. Price',       v: r => fmt(r.theoPrice, 2) },
-    { label: 'Edge to Theo (pts)',v: r => fmtSigned(r.edge, 2) },
+    { label: 'Edge to Theo % (>0 rich)', v: r => fmtSigned(r.edge, 2) },
   ]},
   { name: 'Risk / Greeks', rows: [
     { label: 'Delta',          v: r => fmt(r.delta, 1) },
@@ -4004,7 +4108,7 @@ function computeIcbScores(sel, peers, port) {
   return sel.map(r => {
     const durBond = (r.durationPut != null) ? r.durationPut : (r.duration != null ? r.duration : null);
     const factors = {
-      cheapnessTheo:   r.edge,
+      cheapnessTheo:   r.edge != null ? -r.edge : null,   // Edge > 0 = rich, so cheapness = −Edge (% of price)
       cheapnessIvPeer: (peerIv != null && r.iv != null) ? (peerIv - r.iv) : null,
       ivOverRv:        (r.iv != null && r.inputVol && r.inputVol > 0) ? (r.iv / r.inputVol) : null,
       convexity:       r.gammaTheta,
@@ -4014,7 +4118,7 @@ function computeIcbScores(sel, peers, port) {
       creditCushion:   (r.invValue && r.convPrice && r.convPrice > 0) ? (r.invValue / r.convPrice) : null
     };
     const normalized = {
-      cheapnessTheo:   scoreScale(factors.cheapnessTheo, -3, 5),
+      cheapnessTheo:   scoreScale(factors.cheapnessTheo, -4, 4),
       cheapnessIvPeer: scoreScale(factors.cheapnessIvPeer, -5, 5),
       ivOverRv:        scoreScale(factors.ivOverRv, 0.6, 1.5, true),
       convexity:       scoreScale(factors.convexity, 0.5, 1.5),
@@ -4052,7 +4156,7 @@ function renderIcbScoring(sel) {
   rk.querySelector('thead').innerHTML = `<tr>
     <th class="text-col">Rank</th>
     <th class="text-col">CB</th>
-    <th>Edge</th>
+    <th title="−Edge to Theo: % below theo price, > 0 = cheap">Cheap vs theo %</th>
     <th>IV vs peer</th>
     <th>IV/RV</th>
     <th>γ/Prem</th>
@@ -4128,9 +4232,9 @@ function recommendationHTML(scored, port, peers) {
 
   const parts = [];
   if (f.cheapnessTheo != null && f.cheapnessTheo > 0) {
-    parts.push(`Edge to Theo <strong>${fmtSigned(f.cheapnessTheo, 2)}</strong> pts`);
+    parts.push(`<strong>${f.cheapnessTheo.toFixed(2)}%</strong> sous le prix théorique`);
   } else if (f.cheapnessTheo != null) {
-    parts.push(`<span class="hl-warn">Edge to Theo ${fmtSigned(f.cheapnessTheo, 2)} pts (rich)</span>`);
+    parts.push(`<span class="hl-warn">${(-f.cheapnessTheo).toFixed(2)}% au-dessus du prix théorique (rich)</span>`);
   }
   if (ivDiff != null) {
     if (ivDiff > 0) parts.push(`IV <strong class="hl-pos">${ivDiff.toFixed(1)} vol points sous le peer group</strong>`);
@@ -4189,9 +4293,9 @@ document.getElementById('btn-icb-export').onclick = () => {
   ICB_FACTORS.forEach(f => scAOA.push(['  ' + f.label, icbState.weights[f.key] || 0]));
   scAOA.push([]);
   scAOA.push(['Rank', 'CB', 'ISIN',
-    'Factor: Edge', 'Factor: IV vs peer', 'Factor: IV/RV', 'Factor: γ/Prem',
+    'Factor: Cheap vs theo % (-Edge)', 'Factor: IV vs peer', 'Factor: IV/RV', 'Factor: γ/Prem',
     'Factor: γ-impact', 'Factor: Dur fit', 'Factor: Yield adv', 'Factor: BF/Px',
-    'Norm: Edge', 'Norm: IV vs peer', 'Norm: IV/RV', 'Norm: γ/Prem',
+    'Norm: Cheap vs theo', 'Norm: IV vs peer', 'Norm: IV/RV', 'Norm: γ/Prem',
     'Norm: γ-impact', 'Norm: Dur fit', 'Norm: Yield adv', 'Norm: BF/Px',
     'Score / 10']);
   scored.forEach((s, i) => {
@@ -4251,6 +4355,363 @@ document.getElementById('btn-icb-export').onclick = () => {
   XLSX.writeFile(wb, `cb_issuer_comparison_${safeIssuer}_${todayStr()}.xlsx`);
 };
 
+/* =========================================================
+   CHEAP CALLS — rank embedded options by cheapness within the index
+   ========================================================= */
+const CC_FACTORS = [
+  // dir: +1 = higher is cheaper, -1 = lower is cheaper
+  { key: 'ivResid',     label: 'IV resid. vs index fit', dir: -1, w: 40 },
+  { key: 'volSpread',   label: 'IV − Input Vol',         dir: -1, w: 25 },
+  { key: 'bucketRel',   label: 'IV−Vol vs bucket',       dir: -1, w: 15 },
+  // ~ linearized Input Vol − IV: off by default to avoid double counting
+  { key: 'edgeVol',     label: '(Theo − Px) / Vega',     dir: +1, w: 0 },
+  { key: 'gammaTheta',  label: 'Γ P&L / |Θ|',            dir: +1, w: 20 },
+];
+const ccState = {
+  weights: Object.fromEntries(CC_FACTORS.map(f => [f.key, f.w])),
+  rows: [],          // [{ r, f: {factor values}, score }]
+  fit: null,         // { a, b }
+  sort: { col: 'score', dir: -1 },
+};
+
+function median(arr) {
+  const v = arr.filter(x => x != null && isFinite(x)).sort((a, b) => a - b);
+  if (!v.length) return null;
+  const m = v.length >> 1;
+  return v.length % 2 ? v[m] : (v[m - 1] + v[m]) / 2;
+}
+
+function olsFit(pts) {
+  const n = pts.length;
+  if (n < 3) return null;
+  let sx = 0, sy = 0, sxx = 0, sxy = 0;
+  for (const [x, y] of pts) { sx += x; sy += y; sxx += x * x; sxy += x * y; }
+  const den = n * sxx - sx * sx;
+  if (Math.abs(den) < 1e-9) return null;
+  const b = (n * sxy - sx * sy) / den;
+  return { a: (sy - b * sx) / n, b };
+}
+
+// OLS, then refit without |resid| > 3 MAD so a few broken prices don't tilt the line
+function robustFit(pts) {
+  const f0 = olsFit(pts);
+  if (!f0) return null;
+  const res = pts.map(([x, y]) => y - (f0.a + f0.b * x));
+  const med = median(res);
+  const mad = median(res.map(e => Math.abs(e - med)));
+  if (!mad) return f0;
+  const kept = pts.filter((p, i) => Math.abs(res[i] - med) <= 3 * 1.4826 * mad);
+  return olsFit(kept) || f0;
+}
+
+// Percentile rank in [0,100], oriented so 100 = cheapest
+function pctRanks(values, dir) {
+  const v = values.map((x, i) => [x, i]).filter(([x]) => x != null && isFinite(x));
+  const out = new Array(values.length).fill(null);
+  if (v.length < 2) { v.forEach(([, i]) => out[i] = 50); return out; }
+  v.sort((a, b) => dir * (a[0] - b[0]));
+  // average rank on ties
+  for (let s = 0; s < v.length;) {
+    let e = s;
+    while (e + 1 < v.length && v[e + 1][0] === v[s][0]) e++;
+    const rk = ((s + e) / 2) / (v.length - 1) * 100;
+    for (let k = s; k <= e; k++) out[v[k][1]] = rk;
+    s = e + 1;
+  }
+  return out;
+}
+
+function ccSourceRows() {
+  const src = document.getElementById('cc-source').value;
+  if (src === 'universe') return state.universe;
+  if (src === 'selected') return [...state.selected];
+  return state.filtered;
+}
+
+function ccInputs() {
+  const n = id => toNum(document.getElementById(id).value);
+  return {
+    dmin: n('cc-dmin'), dmax: n('cc-dmax'), csmax: n('cc-csmax'),
+    noMand: document.getElementById('cc-nomand').value === '1',
+    bucket: document.getElementById('cc-bucket').value,
+    capMode: document.getElementById('cc-cap').value,
+    topN: Math.max(1, n('cc-topn') || 50),
+  };
+}
+
+// Underpricing in vol pts. FTSE "Edge to Theo" = (Px − Theo) / Px in % (> 0 = rich), vega in pts per vol pt.
+function ccTheoGapVol(r) {
+  if (r.vega == null || r.vega < 0.02) return null;
+  if (r.theoPrice != null && r.convPrice != null) return (r.theoPrice - r.convPrice) / r.vega;
+  if (r.edge != null && r.convPrice != null) return -r.edge * r.convPrice / 100 / r.vega;
+  return null;
+}
+
+function computeCheapCalls() {
+  const inp = ccInputs();
+  const src = ccSourceRows();
+  let elig = src.filter(r => {
+    if (r.iv == null || r.iv <= 0) return false;
+    if (r.delta == null) return false;
+    if (inp.dmin != null && r.delta < inp.dmin) return false;
+    if (inp.dmax != null && r.delta > inp.dmax) return false;
+    if (inp.csmax != null && r.creditSpread != null && r.creditSpread > inp.csmax) return false;
+    if (inp.noMand && /^y/i.test(r.mandatory)) return false;
+    return true;
+  });
+
+  // FTSE caps Input Vol (60 in recent files): a cluster at the max is a cap, not a vol estimate
+  const vols = src.map(r => r.inputVol).filter(v => v != null && v > 0);
+  const vMax = vols.length ? Math.max(...vols) : null;
+  const atMax = vols.filter(v => v === vMax).length;
+  ccState.volCap = (vMax != null && atMax >= 5 && atMax >= 0.05 * vols.length) ? vMax : null;
+  const capped = r => ccState.volCap != null && r.inputVol === ccState.volCap;
+  if (inp.capMode === 'exclude') elig = elig.filter(r => !capped(r));
+  ccState.nCapped = elig.filter(capped).length;
+
+  const hasVol = r => r.inputVol != null && r.inputVol > 0;
+  const volOk = r => hasVol(r) && !(inp.capMode === 'novol' && capped(r));
+  ccState.fit = robustFit(elig.filter(r => hasVol(r) && !capped(r)).map(r => [r.inputVol, r.iv]));
+  const fit = ccState.fit;
+
+  const rows = elig.map(r => ({
+    r,
+    f: {
+      volSpread:  volOk(r) ? r.iv - r.inputVol : null,
+      ivResid:    (fit && volOk(r)) ? r.iv - (fit.a + fit.b * r.inputVol) : null,
+      edgeVol:    ccTheoGapVol(r),
+      gammaTheta: r.gammaTheta,
+      bucketRel:  null,
+    },
+  }));
+
+  // Spread vs bucket median
+  const byB = {};
+  rows.forEach(x => { const k = x.r[inp.bucket] || 'N/A'; (byB[k] = byB[k] || []).push(x); });
+  ccState.buckets = Object.entries(byB).map(([k, xs]) => {
+    const med = median(xs.map(x => x.f.volSpread));
+    xs.forEach(x => { if (med != null && x.f.volSpread != null && xs.length >= 3) x.f.bucketRel = x.f.volSpread - med; });
+    return { k, n: xs.length, med, medResid: median(xs.map(x => x.f.ivResid)) };
+  }).filter(b => b.med != null);
+
+  // Composite score: weighted mean of available percentile ranks
+  const ranks = {};
+  for (const fd of CC_FACTORS) ranks[fd.key] = pctRanks(rows.map(x => x.f[fd.key]), fd.dir);
+  rows.forEach((x, i) => {
+    let num = 0, den = 0;
+    for (const fd of CC_FACTORS) {
+      const w = ccState.weights[fd.key] || 0, rk = ranks[fd.key][i];
+      if (w > 0 && rk != null) { num += w * rk; den += w; }
+    }
+    x.score = den > 0 ? num / den : null;
+    x.capped = capped(x.r);
+  });
+  ccState.rows = rows;
+  ccState.inputs = inp;
+  ccState.srcCount = src.length;
+}
+
+function renderCcWeights() {
+  const grid = document.getElementById('cc-weights-grid');
+  grid.innerHTML = CC_FACTORS.map(fd => `
+    <div class="form-row">
+      <label>${fd.label}</label>
+      <input type="number" min="0" step="5" data-ccw="${fd.key}" value="${ccState.weights[fd.key]}">
+      <div class="helper" id="ccw-norm-${fd.key}"></div>
+    </div>`).join('');
+  grid.querySelectorAll('input[data-ccw]').forEach(inp => inp.addEventListener('change', e => {
+    ccState.weights[e.target.dataset.ccw] = Math.max(0, toNum(e.target.value) || 0);
+    renderCheapCalls();
+  }));
+}
+
+function updateCcWeightNorm() {
+  const tot = CC_FACTORS.reduce((a, fd) => a + (ccState.weights[fd.key] || 0), 0);
+  CC_FACTORS.forEach(fd => {
+    const el = document.getElementById('ccw-norm-' + fd.key);
+    if (el) el.textContent = tot > 0 ? `${((ccState.weights[fd.key] || 0) / tot * 100).toFixed(0)}%` : '–';
+  });
+}
+
+function renderCheapCalls() {
+  const has = state.universe && state.universe.length;
+  document.getElementById('cc-empty').style.display = has ? 'none' : 'block';
+  document.getElementById('cc-content').style.display = has ? 'block' : 'none';
+  if (!has) return;
+  if (!document.querySelector('#cc-weights-grid input')) renderCcWeights();
+  updateCcWeightNorm();
+  computeCheapCalls();
+  document.getElementById('cc-count').textContent = `(${ccState.rows.length} eligible / ${ccState.srcCount})`;
+  renderCcKPIs();
+  renderCcCharts();
+  renderCcTable();
+}
+
+function renderCcKPIs() {
+  const rows = ccState.rows, fit = ccState.fit;
+  const med = k => median(rows.map(x => x.f[k]));
+  const ms = med('volSpread');
+  const cards = [
+    { label: 'Eligible CBs', value: rows.length },
+    { label: 'Median IV', value: fmt(median(rows.map(x => x.r.iv)), 1) },
+    { label: 'Median Input Vol', value: fmt(median(rows.map(x => x.r.inputVol)), 1) },
+    { label: 'Median IV − Vol', value: fmtSigned(ms, 1), cls: ms == null ? '' : (ms < 0 ? 'pos' : 'neg'), sub: ms == null ? '' : (ms < 0 ? 'index cheap vs input vol' : 'index rich vs input vol') },
+    { label: 'Index fit IV =', value: fit ? `${fmt(fit.a, 1)} + ${fmt(fit.b, 2)}·σ` : '–', sub: 'robust OLS on Input Vol' },
+    { label: 'Median (Theo−Px)/Vega', value: fmtSigned(med('edgeVol'), 1), sub: 'vol pts, > 0 = cheap' },
+    { label: 'Input Vol at cap', value: ccState.volCap != null ? ccState.nCapped : '–', sub: ccState.volCap != null ? `cap ${fmt(ccState.volCap, 0)} · excluded from fit` : 'no cap detected' },
+    { label: 'Median Γ/Θ', value: fmt(med('gammaTheta'), 2) },
+  ];
+  document.getElementById('kpi-cc').innerHTML = cards.map(c => `
+    <div class="kpi ${c.cls || ''}">
+      <div class="label">${c.label}</div>
+      <div class="value">${c.value}</div>
+      ${c.sub ? `<div class="sub">${c.sub}</div>` : ''}
+    </div>`).join('');
+}
+
+function renderCcCharts() {
+  const rows = ccState.rows, fit = ccState.fit;
+  const pts = rows.filter(x => x.r.inputVol != null && x.r.inputVol > 0);
+  const scores = rows.map(x => x.score).filter(v => v != null).sort((a, b) => a - b);
+  const q = p => scores.length ? scores[Math.floor(p * (scores.length - 1))] : null;
+  const hi = q(0.8), lo = q(0.2);
+  const groups = [
+    { label: 'Cheapest 20%', color: '#3fb950', test: s => s != null && s >= hi },
+    { label: 'Middle',       color: '#56a3f566', test: s => s == null || (s < hi && s > lo) },
+    { label: 'Richest 20%',  color: '#f85149', test: s => s != null && s <= lo },
+  ];
+  const datasets = groups.map(g => ({
+    type: 'scatter', label: g.label, backgroundColor: g.color, pointRadius: 3.5, pointHoverRadius: 6,
+    data: pts.filter(x => g.test(x.score)).map(x => ({ x: x.r.inputVol, y: x.r.iv, cb: x })),
+  }));
+  if (fit && pts.length) {
+    const xs = pts.map(x => x.r.inputVol);
+    const x0 = Math.min(...xs), x1 = Math.max(...xs);
+    datasets.push({ type: 'line', label: 'Index fit', borderColor: '#f9a826', borderWidth: 1.5, pointRadius: 0,
+      data: [{ x: x0, y: fit.a + fit.b * x0 }, { x: x1, y: fit.a + fit.b * x1 }] });
+    datasets.push({ type: 'line', label: 'IV = Input Vol', borderColor: '#8b949e', borderDash: [4, 4], borderWidth: 1, pointRadius: 0,
+      data: [{ x: x0, y: x0 }, { x: x1, y: x1 }] });
+  }
+  destroyChart('ccScatter');
+  const opts = lineChartOpts('Input Vol (%)', 'Implied Vol (%)');
+  opts.scales.x.type = 'linear';
+  // clip the y axis at the 98th pct of IV so a few broken prices don't flatten the cloud (outliers stay in the table)
+  const ivs = pts.map(x => x.r.iv).sort((a, b) => a - b);
+  if (ivs.length > 10) opts.scales.y.max = Math.ceil(Math.max(...pts.map(x => x.r.inputVol), ivs[Math.floor(0.98 * (ivs.length - 1))]) * 1.1 / 10) * 10;
+  opts.plugins = { ...opts.plugins, tooltip: { ...chartDefaults.plugins.tooltip, callbacks: {
+    label: ctx => {
+      const x = ctx.raw.cb;
+      if (!x) return ctx.dataset.label;
+      return `${x.r.issue} · IV ${fmt(x.r.iv, 1)} / Vol ${fmt(x.r.inputVol, 1)} · resid ${fmtSigned(x.f.ivResid, 1)} · score ${fmt(x.score, 0)}`;
+    } } } };
+  state.charts.ccScatter = new Chart(document.getElementById('ch-cc-scatter'), { type: 'scatter', data: { datasets }, options: opts });
+
+  const bk = ccState.buckets.slice().sort((a, b) => a.med - b.med).slice(0, 20);
+  document.getElementById('cc-bucket-title').innerHTML =
+    `Median IV − Input Vol by ${ccState.inputs.bucket} (vol pts, &lt; 0 = cheap)`;
+  destroyChart('ccBucket');
+  state.charts.ccBucket = new Chart(document.getElementById('ch-cc-bucket'), {
+    type: 'bar',
+    data: { labels: bk.map(b => `${b.k} (${b.n})`),
+      datasets: [{ data: bk.map(b => b.med), backgroundColor: bk.map(b => b.med < 0 ? '#3fb950' : '#f85149') }] },
+    // own scales: Chart.js resolves (mutates) the shared chartDefaults.scales objects
+    options: { ...chartDefaults, indexAxis: 'y', scales: {
+      x: { type: 'linear', ticks: { color: '#8b949e', font: { size: 10, family: 'IBM Plex Mono' } }, grid: { color: '#1e252f' } },
+      y: { type: 'category', ticks: { color: '#8b949e', font: { size: 10, family: 'IBM Plex Mono' } }, grid: { color: '#1e252f' } },
+    } },
+  });
+}
+
+const ccCols = [
+  { k: 'rank',        h: '#',          get: (x, i) => i + 1 },
+  { k: 'issue',       h: 'Issuer',     text: true, get: x => x.r.issue },
+  { k: 'isin',        h: 'ISIN',       text: true, get: x => x.r.isin },
+  { k: 'region',      h: 'Region',     text: true, get: x => x.r.region, fmt: v => regionTag(v) },
+  { k: 'sector',      h: 'Sector',     text: true, get: x => x.r.sector },
+  { k: 'currency',    h: 'CCY',        text: true, get: x => x.r.currency },
+  { k: 'delta',       h: 'Δ',          get: x => x.r.delta,        fmt: v => fmt(v, 1) },
+  { k: 'premium',     h: 'Prem%',      get: x => x.r.premium,      fmt: v => fmt(v, 1) },
+  { k: 'creditSpread',h: 'CS',         get: x => x.r.creditSpread, fmt: v => fmt(v, 0) },
+  { k: 'durationPut', h: 'Dur P/M',    get: x => x.r.durationPut,  fmt: v => fmt(v, 2) },
+  { k: 'iv',          h: 'IV',         get: x => x.r.iv,           fmt: v => fmt(v, 1) },
+  { k: 'inputVol',    h: 'Input Vol',  get: x => x.r.inputVol,     fmt: (v, x) => fmt(v, 1) + (x.capped ? '<sup title="Input Vol at FTSE cap">cap</sup>' : '') },
+  { k: 'volSpread',   h: 'IV−Vol',     get: x => x.f.volSpread,  fmt: v => fmtSigned(v, 1), sign: -1 },
+  { k: 'ivResid',     h: 'Resid fit',  get: x => x.f.ivResid,    fmt: v => fmtSigned(v, 1), sign: -1 },
+  { k: 'bucketRel',   h: 'vs bucket',  get: x => x.f.bucketRel,  fmt: v => fmtSigned(v, 1), sign: -1 },
+  { k: 'edge',        h: 'Edge %',     get: x => x.r.edge,         fmt: v => fmtSigned(v, 2), sign: -1 },
+  { k: 'edgeVol',     h: '(Th−Px)/V',  get: x => x.f.edgeVol,    fmt: v => fmtSigned(v, 1), sign: +1 },
+  { k: 'gammaTheta',  h: 'Γ/Θ',        get: x => x.f.gammaTheta, fmt: (v, x) => fmt(v, 2) + (x.r.thetaEstimated ? '*' : '') },
+  { k: 'score',       h: 'Score',      get: x => x.score,        fmt: v => v == null ? '–' : `<span class="score-pill${v >= 80 ? ' top' : ''}">${v.toFixed(0)}</span>` },
+];
+
+function ccSortedRows() {
+  const { col, dir } = ccState.sort;
+  const c = ccCols.find(c => c.k === col) || ccCols.find(c => c.k === 'score');
+  return ccState.rows.slice().sort((a, b) => {
+    const va = c.get(a), vb = c.get(b);
+    if (va == null && vb == null) return 0;
+    if (va == null) return 1;
+    if (vb == null) return -1;
+    if (typeof va === 'number' && typeof vb === 'number') return dir * (va - vb);
+    return dir * String(va).localeCompare(String(vb));
+  });
+}
+
+function renderCcTable() {
+  const tbl = document.getElementById('tbl-cc');
+  const sc = ccState.sort;
+  tbl.querySelector('thead').innerHTML = '<tr>' + ccCols.map(c => {
+    const cls = sc.col === c.k ? (sc.dir > 0 ? 'sorted-asc' : 'sorted-desc') : '';
+    return `<th class="${c.text ? 'text-col' : ''} ${cls}" ${c.k !== 'rank' ? `data-col="${c.k}"` : ''}>${c.h}</th>`;
+  }).join('') + '</tr>';
+  tbl.querySelectorAll('thead th[data-col]').forEach(th => th.addEventListener('click', () => {
+    const col = th.dataset.col;
+    if (sc.col === col) sc.dir *= -1;
+    else { sc.col = col; sc.dir = (col === 'score' || col === 'edgeVol' || col === 'gammaTheta') ? -1 : 1; }
+    renderCcTable();
+  }));
+
+  const data = ccSortedRows().slice(0, ccState.inputs.topN);
+  ccState.shown = data;
+  const tbody = tbl.querySelector('tbody');
+  tbody.innerHTML = data.length ? data.map((x, i) => '<tr>' + ccCols.map(c => {
+    const v = c.get(x, i);
+    let cls = c.text ? 'text-col' : '';
+    if (c.sign && v != null) cls += (c.sign * v > 0) ? ' pos' : (c.sign * v < 0 ? ' neg' : '');
+    const disp = c.fmt ? c.fmt(v, x) : (v == null ? '–' : v);
+    return `<td class="${cls}">${disp}</td>`;
+  }).join('') + '</tr>').join('')
+    : `<tr><td colspan="${ccCols.length}" class="no-data">No CB passes the screen (needs IV and delta in range).</td></tr>`;
+  document.getElementById('cc-rank-count').textContent = `(top ${data.length} of ${ccState.rows.length})`;
+  updateCcSelStatus();
+}
+
+function updateCcSelStatus() {
+  const shown = ccState.shown || [];
+  const n = shown.filter(x => state.selected.has(x.r)).length;
+  document.getElementById('cc-sel-status').textContent = `${n}/${shown.length} shown already selected · ${state.selected.size} total selected`;
+}
+
+function exportCcCSV() {
+  const cols = ['rank','isin','issue','region','sector','currency','delta','premium','creditSpread','durationPut','iv','inputVol','capped','volSpread','ivResid','bucketRel','edge','edgeVol','gammaTheta','thetaEstimated','score'];
+  const lines = [cols.join(',')];
+  ccSortedRows().forEach((x, i) => {
+    const v = { rank: i + 1, ...x.r, ...x.f, score: x.score, capped: x.capped };
+    lines.push(cols.map(c => csvCell(v[c])).join(','));
+  });
+  downloadFile(lines.join('\n'), `cheap_calls_${todayStr()}.csv`, 'text/csv');
+}
+
+['cc-source', 'cc-dmin', 'cc-dmax', 'cc-csmax', 'cc-nomand', 'cc-bucket', 'cc-cap', 'cc-topn'].forEach(id =>
+  document.getElementById(id).addEventListener('change', renderCheapCalls));
+document.getElementById('btn-cc-export').addEventListener('click', exportCcCSV);
+document.getElementById('btn-cc-select').addEventListener('click', () => {
+  (ccState.shown || []).forEach(x => state.selected.add(x.r));
+  updateSelectionStatus();
+  renderUniverseTable();
+  updateCcSelStatus();
+});
+
 document.querySelectorAll('.tab-btn').forEach(btn => {
   btn.addEventListener('click', () => {
     document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
@@ -4258,6 +4719,7 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
     btn.classList.add('active');
     document.getElementById('tab-' + btn.dataset.tab).classList.add('active');
     if (btn.dataset.tab === 'portfolio') renderSizer();
+    if (btn.dataset.tab === 'cheap-calls') renderCheapCalls();
   });
 });
 
